@@ -1,0 +1,306 @@
+// Task 2C - MazeSolver Bot
+
+module t2c_maze_explorer (
+    input clk,
+    input rst_n,
+    input left, mid, right, // 0 - no wall, 1 - wall
+    output reg [2:0] move
+);
+
+/*
+
+| cmd | move  | meaning   |
+|-----|-------|-----------|
+| 000 | 0     | STOP      |
+| 001 | 1     | FORWARD   |
+| 010 | 2     | LEFT      |
+| 011 | 3     | RIGHT     | 
+| 100 | 4     | U_TURN    |
+
+START POS   : 4,0
+EXIT POS    : 4,8
+DEADENDS    : 9
+
+*/
+//////////////////DO NOT MAKE ANY CHANGES ABOVE THIS LINE //////////////////
+
+/*
+For this FSM, i have defined 3 states 
+00- dead end
+01- path
+10 - junction
+
+
+ cmd_forward : rel = 0;
+ cmd_left : rel = -3'sd1 ;
+ cmd_right: rel = 3'sd1;
+ cmd_uturn: rel =3'sd2;
+ default : rel =3'sd0;
+*/
+
+reg [1:0] state;  //for deadend, path or junction
+
+localparam N=3'd0, E=3'd1, S=3'd2, W=3'd3;
+localparam cmd_stop = 3'b000, cmd_forward = 3'b001, cmd_left = 3'b010, cmd_right = 3'b011, cmd_uturn = 3'b100 ;  //cant use the same name thus cmd_...
+
+reg [2:0] current_dir ;        //the direction we are facing
+reg [7:0]  x,y ;   //x,y coordinates
+reg [1:0] marker;  //marker for tremaux logic
+
+reg [1:0] next_state; 
+reg [2:0] next_move;
+reg [2:0] next_dir;
+
+reg [2:0] mark_mem [0:80][0:3];  // 81 cells × 4 directions that will store 0,1,2 marker values of the entire maze
+integer i, j;   //integers to set all the values in mark_mem as 0
+reg [7:0] nx, ny;    //next x and next y
+
+//move_... delays the driving of value from next_move to move by 1 clock thus used in synchronization
+reg [2:0] move_reg; 
+reg [2:0] dir_reg;
+reg [2:0] state_reg; 
+
+
+//------making mark_mem values as 0
+initial begin
+  for (i = 0; i < 81; i = i + 1)
+    for (j = 0; j < 4; j = j + 1)
+      mark_mem[i][j] = 0;
+end
+
+
+integer curr_cell, next_cell;  //contains the cell number 9*y+x, for mark_mem
+integer delta [0:3];      //for updating cell values based on move 
+
+// Relative directions: left = -1, forward = 0, right = +1
+    reg signed [2:0] relL, relF, relR, relU;   //for addition or subtraction logic for direction math
+    reg [2:0] absL, absF, absR;    //absolute directions left,front, and right of the bot at any time 
+    reg [2:0] markL, markF, markR;   //marker value of the cell at lefr,front,right
+    reg [2:0] best_move;
+    reg [2:0] best_dir;
+	 reg openL, openF, openR;  //check which cells are open for deciding next possible move
+
+    
+
+initial begin  
+    delta[0] = -9; // N
+    delta[1] =  1; // E
+    delta[2] =  9; // S
+    delta[3] = -1; // W
+	 relL = -3'sd1; 
+	 relF = 3'sd0;
+	 relR = 3'sd1;
+	 relU = 3'sd2;
+end
+
+
+initial begin
+ x = 8'd4;
+ y = 8'd8	;
+ current_dir = N; 
+end
+
+
+//------function to update direction base on move --------//
+function automatic [2:0] new_dir(input [2:0] current_dir, input signed [2:0] rel); 
+begin
+    new_dir = (current_dir + rel + 3'd4) % 3'd4;    //modulo operator
+end
+endfunction
+
+
+ //------ functions to calculate updated x and y based on direction ------///
+function automatic signed [7:0] dx(input [2:0] current_dir);
+  case (current_dir)   // N,E,S,W
+    N: dx = 0;
+    E: dx = 8'sd1;
+    S: dx = 0;
+    W: dx = -8'sd1;
+	 default: dx = 0;
+  endcase
+endfunction
+
+function automatic signed [7:0] dy(input [2:0] current_dir);
+  case (current_dir)
+    N: dy = -8'sd1;
+    E: dy =  0;
+    S: dy =  8'sd1;	
+    W: dy =  0;
+	 default :dy= 0;
+  endcase
+endfunction
+
+
+ //-------Decoding the State here --------//
+reg [2:0] next_move_01;
+reg [2:0] next_move_prec; 
+always @(posedge clk)begin 
+ next_move_01 = 3'b000 ;
+ next_move_prec = 3'b000; 
+//by default stay where you are
+next_state = state;
+next_move = cmd_stop;
+next_dir = current_dir; 
+    absL = 3'd0;
+    absF = 3'd0;
+    absR = 3'd0;
+    openL = 1'b0;
+    openF = 1'b0;
+    openR = 1'b0;
+    markL = 3'd7;
+    markF = 3'd7;
+    markR = 3'd7;
+    best_move = cmd_stop;
+    best_dir  = current_dir;
+	 
+// guard: ignore unknown walls
+  if (^({left, mid, right}) === 1'bX) begin    //XOR all the bits, if any bit is X then result becomes X
+      next_state = 2'b00;
+      next_move  = cmd_stop;
+      next_dir   = current_dir;
+  end
+  
+  else begin
+
+// --state classifying --- 
+if (left && right && mid) next_state = 2'b00;     // deadend
+else if ( (~mid && left && right) || (mid && ~left && right) || (mid && left && ~right) )   next_state = 2'b01;    //path
+else next_state = 2'b10;   //junction
+
+
+   // Compute absolute directions (wrap-around 0–3)
+    absL = new_dir(current_dir, relL);
+    absF = new_dir(current_dir, relF);
+    absR = new_dir(current_dir, relR);
+
+    // Check open paths (0 = open, 1 = wall)
+    openL = ~left;
+    openF = ~mid;
+    openR = ~right;
+
+//-----now telling what move to be performed at each state ---- //
+case (next_state) 
+
+//---------deadend----------
+2'b00 : begin   
+next_move = cmd_uturn;
+next_dir = new_dir (current_dir, relU);  //reversing the direction using the new_dir function
+end
+
+//--------path----------
+2'b01 : begin 
+  if(~mid) begin next_move = cmd_forward;
+              next_dir = new_dir (current_dir, relF);
+        end	
+  else if(~left) begin next_move = cmd_left;
+              next_dir = new_dir (current_dir, relL);
+        end	
+  else if(~right) begin next_move = cmd_right;
+              next_dir = new_dir (current_dir, relR);
+        end		
+next_move_01 = next_move; 	  
+end
+
+//-----junction------
+2'b10: begin
+
+    // Get marker values for open paths
+    markL = openL ? mark_mem[y*9 + x][absL] : 3'd7;  // 7 = treated as blocked
+    markF = openF ? mark_mem[y*9 + x][absF] : 3'd7;
+    markR = openR ? mark_mem[y*9 + x][absR] : 3'd7;
+
+    // --- Decision rule ---
+    if (markF <= markL && markF <= markR && markF < 3'd3) begin
+        best_move = cmd_forward;
+        best_dir  = absF;
+    end 
+    else if (markL <= markF && markL <= markR && markL < 3'd3) begin
+        best_move = cmd_left;
+        best_dir  = absL;
+    end 
+    else if (markR <= markF && markR <= markL && markR < 3'd3) begin
+        best_move = cmd_right;
+        best_dir  = absR;
+    end 
+    else begin
+        // All explored or blocked → U-turn
+        best_move = cmd_uturn;
+        best_dir  = new_dir(current_dir, relU);
+    end
+
+    next_move = best_move;
+    next_dir  = best_dir;
+  end
+
+ endcase
+ 
+    nx = x + dx(next_dir);
+    ny = y + dy(next_dir);
+	 
+	 
+// ---- boundary safety ----
+if (nx < 0 || nx > 8 || ny < 0 || ny > 8) begin
+    next_move = cmd_uturn;
+    next_dir  = new_dir(current_dir, relU);
+    nx = x; // don't move out
+    ny = y;
+	 next_move_prec = next_move; 
+end
+end
+end
+
+
+//----------now clocking the movement -----
+always @(posedge clk) begin
+  if (!rst_n) begin
+     state       <= 2'b00;
+     move        <= cmd_stop;
+     current_dir <= N;
+     x           <= 4'd4;
+     y           <= 4'd8;
+  end else begin
+  state_reg   <= next_state; 
+  state       <= state_reg;
+  
+  move_reg    <= next_move;   // internal update
+  move        <= move_reg;    // one-cycle delayed output
+  
+  dir_reg <= next_dir;
+  current_dir <= dir_reg;
+
+if (move_reg != cmd_stop) begin
+    // Compute cells with next_dir (the direction we’ll actually move)
+    curr_cell = y*9 + x;
+    next_cell = curr_cell + delta[current_dir];
+
+    // Mark edges
+    if (mark_mem[curr_cell][current_dir] < 3'd3)
+        mark_mem[curr_cell][current_dir] <= mark_mem[curr_cell][current_dir] + 3'd1;
+    if (mark_mem[next_cell][current_dir ^ 3'b010] < 3'd3)
+        mark_mem[next_cell][current_dir ^ 3'b010] <= mark_mem[next_cell][current_dir ^ 3'b010] + 3'd1;
+
+    // Advance position only if we’re actually going forward
+ 
+x <= nx;
+y <= ny;
+
+        end
+     end
+   end
+
+
+
+//always @(posedge clk) begin
+//  $display("t=%0t | x=%0d y=%0d | dir=%0d next_dir=%0d | move=%0b next_move=%0b | state=%0b next_state=%0b | L=%b M=%b R=%b", 
+//           $time, x, y, 
+//           current_dir, next_dir, 
+//           move, next_move, 
+//           state, next_state, 
+//           left, mid, right);
+//end
+
+
+
+//////////////////DO NOT MAKE ANY CHANGES BELOW THIS LINE //////////////////
+
+endmodule
