@@ -174,19 +174,22 @@ always @(*) begin
         // --- Junction ---
         2'b10: begin
             // --- Trémaux Decision Rule ---
-            // Find the open path with the lowest marker count (0 or 1)
-            if (markF <= markL && markF <= markR && markF < 2'd2) begin // CHANGED: < 2'd2
+            // REVERTED: Back to Forward -> Left -> Right priority.
+            
+            if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward first
                 best_move = cmd_forward;
                 best_dir  = absF;
             end
-            else if (markL <= markF && markL <= markR && markL < 2'd2) begin // CHANGED: < 2'd2
+            else if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left second
                 best_move = cmd_left;
                 best_dir  = absL;
             end
-            else if (markR <= markF && markR <= markL && markR < 2'd2) begin // CHANGED: < 2'd2
+            else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right third
                 best_move = cmd_right;
                 best_dir  = absR;
             end
+
+            // STAGE 3: All paths are 2 (or walls). U-turn.
             else begin
                 // All paths fully explored (count=2) or blocked -> U-turn
                 // This implements the "turn back on arrival" rule
@@ -285,8 +288,4 @@ end
 //////////////////DO NOT MAKE ANY CHANGES BELOW THIS LINE //////////////////
 
 endmodule
-
-
-
-
 
