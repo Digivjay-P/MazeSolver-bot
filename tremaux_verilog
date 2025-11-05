@@ -1,4 +1,3 @@
-
 module t2c_maze_explorer (
     input clk,
     input rst_n,
@@ -30,7 +29,7 @@ localparam cmd_stop = 3'b000, cmd_forward = 3'b001, cmd_left = 3'b010, cmd_right
 reg [1:0] state;          // 00: deadend, 01: path, 10: junction
 reg [2:0] current_dir;    // N, E, S, W
 reg [1:0] mark_mem [0:80][0:3]; // 81 cells* 4 directions (stores 0, 1, 2)
-                               
+                                
 // --- Next-State Logic Wires/Regs ---
 reg [1:0] next_state;
 reg [2:0] next_move;
@@ -43,9 +42,9 @@ reg [7:0] cell_reg;
 reg [2:0] dir_reg;
  
 // --- Helper regs for combinational block ---
-reg [2:0] absL, absF, absR, absU;      // Absolute directions left/front/right
-reg openL, openF, openR;         // Open paths
-reg [1:0] markL, markF, markR;   // Marker values at left/front/right
+reg [2:0] absL, absF, absR, absU;     // Absolute directions left/front/right
+reg openL, openF, openR;          // Open paths
+reg [1:0] markL, markF, markR;    // Marker values at left/front/right
 
  
 // --- Helper variables ---
@@ -55,8 +54,8 @@ reg signed [2:0] relL, relF, relR, relU;
 
 integer delta [0:3];
 
-// --- Add this to your reg definitions ---
-reg update_marker_flag;
+// --- REMOVED this register, it's the source of the bug ---
+// reg update_marker_flag;
  
 // --- Initialization ---
 initial begin
@@ -66,12 +65,12 @@ initial begin
     relF =  3'sd0; // Forward
     relR =  3'sd1; // Right
     relU =  3'sd2; // U-Turn (180 deg)
-	 delta[0] = -8'sd9;  //N 
+    delta[0] = -8'sd9;  //N 
     delta[1] =  8'sd1;  //E
     delta[2] =  8'sd9;  //S
     delta[3] = -8'sd1;  //W
-	 current_cell = 7'd76;
-	 current_dir = N;
+    current_cell = 7'd76;
+    current_dir = N;
 end
 
 
@@ -91,100 +90,102 @@ always @(*) begin
     next_state = state;
     next_move  = cmd_stop;
     next_dir   = current_dir;
-	 next_cell = current_cell;
+    next_cell = current_cell;
 
     // Compute absolute directions for sensors (wrap-around 0–3)
     absL = new_dir(current_dir, relL);
     absF = new_dir(current_dir, relF);
     absR = new_dir(current_dir, relR);
-	 absU = new_dir(current_dir, relU);
-	 
-	 // Check open paths (0 = open, 1 = wall)
+    absU = new_dir(current_dir, relU);
+    
+    // Check open paths (0 = open, 1 = wall)
     openL = ~left;
     openF = ~mid;
     openR = ~right;
-	 
-	 // Get marker values for open paths
+    
+    // Get marker values for open paths
     // Use 2'd3 (max count) as "blocked" for decision logic
     markL = openL ? mark_mem[current_cell][absL] : 2'd3; 
     markF = openF ? mark_mem[current_cell][absF] : 2'd3; 
     markR = openR ? mark_mem[current_cell][absR] : 2'd3; 
 
-	 
+    
     // Guard: ignore unknown wall sensors
     if (^({left, mid, right}) === 1'bX) begin
         next_state = 2'b00; // Treat as dead end
         next_move  = cmd_stop;
         next_dir   = current_dir;
-		  next_cell = current_cell;
+        next_cell = current_cell;
     end
-	
-	else begin
-	 // ----------- State Classification ---------
+    
+    else begin
+    // ----------- State Classification ---------
         if (left && right && mid)
             next_state = 2'b00; // deadend
         else if ( (~mid && left && right) || (mid && ~left && right) || (mid && left && ~right) )
             next_state = 2'b01; // path
         else
             next_state = 2'b10; // junction
-				
-				// --- State-Based Action Logic ---
+                
+                // --- State-Based Action Logic ---
         case (next_state)
 
         // --- Deadend ---
         2'b00 : begin
             next_move = cmd_uturn;
             next_dir = absU;
-				next_cell = $signed(current_cell) + delta[next_dir];
+            next_cell = $signed(current_cell) + delta[next_dir];
         end
-		  
-		  //------Path--------
-		  2'b01: begin
-		  if(~mid) begin
+        
+         //------Path--------
+         2'b01: begin
+         if(~mid) begin
                 next_move = cmd_forward;
                 next_dir = absF;
-					 next_cell = $signed(current_cell) + delta[next_dir];
+                next_cell = $signed(current_cell) + delta[next_dir];
             end
             else if(~left) begin
                 next_move = cmd_left;
                 next_dir = absL;
-					 next_cell = $signed(current_cell) + delta[next_dir];
+                next_cell = $signed(current_cell) + delta[next_dir];
             end
             else if(~right) begin
                 next_move = cmd_right;
                 next_dir = absR;
-					 next_cell = $signed(current_cell) + delta[next_dir];
+                next_cell = $signed(current_cell) + delta[next_dir];
             end
-         end
-			//--------Junction----------
-			2'b10:begin
-			    // --- Trémaux Decision Rule ---
-            // Back to Left->  Forward -> Right priority.
-            if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left first
-                next_move = cmd_left;
-                next_dir  = absL;
-					 next_cell = $signed(current_cell) + delta[next_dir];
-            end
-            else if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward second
-                next_move = cmd_forward;
-                next_dir = absF;
-				    next_cell = $signed(current_cell) + delta[next_dir];
-            end
-            else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right third
-                next_move = cmd_right;
-                next_dir  = absR;
-					 next_cell = $signed(current_cell) + delta[next_dir];
-            end
+        end
+            //--------Junction----------
+            2'b10:begin
+                // --- Trémaux Decision Rule ---
+                // ***** Priority is now Left -> Right -> Forward *****
+					   if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left first
+                    next_move = cmd_left;
+                    next_dir  = absL;
+                    next_cell = $signed(current_cell) + delta[next_dir];
+                end
+                else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right second
+                    next_move = cmd_right;
+                    next_dir  = absR;
+                    next_cell = $signed(current_cell) + delta[next_dir];
+                end
+					 
+                else if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward third
+                    next_move = cmd_forward;
+                    next_dir = absF;
+                    next_cell = $signed(current_cell) + delta[next_dir];
+                end
+               
 
-            // STAGE 3: All paths are 2 (or walls). U-turn.
-            else begin
+                // STAGE 3: All paths are 2 (or walls). U-turn.
+                else begin
                     next_move = cmd_uturn;
                     next_dir  = absU;
                     next_cell = $signed(current_cell) + delta[next_dir];
                 end
             end
-        endcase // <--- BUG FIX: Was 'end'
-    end // <--- BUG FIX: Was 'end'
+        endcase 
+    end 
 end // <--- END of always @(*)
 
 reg [7:0] x,y;
@@ -205,8 +206,8 @@ always @(posedge clk or negedge rst_n) begin
         dir_reg      <= N;
         cell_reg     <= 7'd76;
         
-        // Reset the flag
-        update_marker_flag <= 1'b0; 
+        // --- REMOVED FLAG RESET ---
+        // update_marker_flag <= 1'b0; 
             
         // Reset memory
         for (i = 0; i < 81; i = i + 1)
@@ -223,20 +224,9 @@ always @(posedge clk or negedge rst_n) begin
         dir_reg      <= next_dir;
         cell_reg     <= next_cell;
         
-        // --- 2. Set the Flag ---
-        // We compare the value *about to be committed* (cell_reg)
-        // with the value that is *currently committed* (current_cell).
-        if (cell_reg != current_cell) begin
-            update_marker_flag <= 1'b1;
-        end else begin
-            update_marker_flag <= 1'b0;
-        end
-
-        // --- 3. Marker Update Logic (using the flag) ---
-        // This logic only fires when the flag *we just set* is high.
-        if (update_marker_flag) begin 
-            // We use the pipelined values (dir_reg, cell_reg) and the
-            // *old* current_cell value.
+        // --- 2. & 3. Check for Move and Update Markers ---
+        // ***** This is the timing bug fix *****
+        if (cell_reg != current_cell) begin 
             if (move_reg != cmd_stop) begin
                 
                 // Mark the exit path from the cell we are *leaving* (current_cell)
