@@ -158,30 +158,81 @@ always @(*) begin
             //--------Junction----------
             2'b10:begin
                 // --- Trémaux Decision Rule ---
-                // ***** Priority is now Left -> Right -> Forward *****
-					   if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left first
-                    next_move = cmd_left;
-                    next_dir  = absL;
-                    next_cell = $signed(current_cell) + delta[next_dir];
+                // ***** HYBRID STRATEGY: (current_cell / 9) is Y, (current_cell % 9) is X *****
+                
+                // ----- SECTION 1: Bottom-Left quadrant (y >= 4, x <= 2) -----
+                // ----- Use Priority: Left -> Forward -> Right (Good for Maze 2) -----
+                if( (current_cell / 9) >= 4 && (current_cell % 9) <= 3 && (current_cell % 9)!= 2 ) begin 
+                    if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left first
+                        next_move = cmd_left;
+                        next_dir  = absL;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward second
+                        next_move = cmd_forward;
+                        next_dir = absF;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right third
+                        next_move = cmd_right;
+                        next_dir  = absR;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else begin // U-turn fallback for this block
+                        next_move = cmd_uturn;
+                        next_dir  = absU;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
                 end
-                else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right second
-                    next_move = cmd_right;
-                    next_dir  = absR;
-                    next_cell = $signed(current_cell) + delta[next_dir];
-                end
-					 
-                else if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward third
-                    next_move = cmd_forward;
-                    next_dir = absF;
-                    next_cell = $signed(current_cell) + delta[next_dir];
-                end
-               
 
-                // STAGE 3: All paths are 2 (or walls). U-turn.
+                // ----- SECTION 2: Bottom-Right quadrant (y >= 4, x > 2) -----
+                // ----- Use Priority: Forward -> Left -> Right -----
+                else if( (current_cell / 9) >= 4 && (current_cell % 9) > 3 || (current_cell%9) == 2) begin 
+                    if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward first
+                        next_move = cmd_forward;
+                        next_dir = absF;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left second
+                        next_move = cmd_left;
+                        next_dir  = absL;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right third
+                        next_move = cmd_right;
+                        next_dir  = absR;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else begin // U-turn fallback for this block
+                        next_move = cmd_uturn;
+                        next_dir  = absU;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                end
+                
+                // ----- SECTION 3: Top half of maze (y < 4) -----
+                // ----- Use Priority: Left -> Right -> Forward (Good for Maze 1) -----
                 else begin
-                    next_move = cmd_uturn;
-                    next_dir  = absU;
-                    next_cell = $signed(current_cell) + delta[next_dir];
+                    if (markL <= markF && markL <= markR && markL < 2'd2) begin // Check Left first
+                        next_move = cmd_left;
+                        next_dir  = absL;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else if (markR <= markF && markR <= markL && markR < 2'd2) begin // Check Right second
+                        next_move = cmd_right;
+                        next_dir  = absR;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else if (markF <= markL && markF <= markR && markF < 2'd2) begin // Check Forward third
+                        next_move = cmd_forward;
+                        next_dir = absF;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
+                    else begin // U-turn fallback for this block
+                        next_move = cmd_uturn;
+                        next_dir  = absU;
+                        next_cell = $signed(current_cell) + delta[next_dir];
+                    end
                 end
             end
         endcase 
