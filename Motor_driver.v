@@ -35,14 +35,58 @@ wire clk_3125KHz;
 	 
 frequency_scaling s1( .clk_50M(clk_50M), .clk_3125KHz(clk_3125KHz));
 
-wire [3:0] dt_cycle_left, dt_cycle_right;
+reg [3:0] dt_cycle_left, dt_cycle_right;
 
 pwm_generator right(.clk_3125KHz(clk_3125KHz), .duty_cycle(dt_cycle_right), .pwm_signal(ENA));
 pwm_generator left(.clk_3125KHz(clk_3125KHz), .duty_cycle(dt_cycle_left), .pwm_signal(ENB));
 
+// Change these from wire to reg at the top of your module:
+    // reg [3:0] dt_cycle_left, dt_cycle_right;
 
-assign dt_cycle_right = (dL < 200) ? (15 - dR*15/ AVERAGE_DISTANCE) : 6;
-assign dt_cycle_left = (dR < 200) ? (15 - dL*15/ AVERAGE_DISTANCE) : 6;
+    // -----------------------------------------------------------
+    //  TUNING PARAMETERS
+    // -----------------------------------------------------------
+    // Tolerance: 30mm (3cm). If error is less than this, go straight.
+    localparam DEAD_BAND = 16'd30; 
+    
+    // Base Speed: Lower this if the bot is still too jerky.
+    localparam BASE_SPEED = 4'd7; 
+    
+    // Correction: How much to turn? Keep this small (1, 2, or 3).
+    localparam TURN_ADJUST = 4'd2; 
+
+    reg [15:0] diff;
+
+    always @(*) begin
+        // 1. Calculate the difference between Left and Right
+        if (dL > dR) diff = dL - dR;
+        else         diff = dR - dL;
+
+        // 2. LOGIC
+        if (dL < 10 || dR < 10) begin
+            // Safety: If sensors read garbage/zero, stop or cruise
+            dt_cycle_right = BASE_SPEED;
+            dt_cycle_left  = BASE_SPEED;
+        end
+        else if (diff < DEAD_BAND) begin
+            // STABLE ZONE: We are roughly in the middle (+/- 3cm)
+            // Just go straight! This fixes the "Wiggling".
+            dt_cycle_right = BASE_SPEED;
+            dt_cycle_left  = BASE_SPEED;
+        end
+        else if (dR < dL) begin
+            // TOO RIGHT: Closer to right wall.
+            // Action: Turn Left gently (Right motor faster)
+            dt_cycle_right = BASE_SPEED + TURN_ADJUST;
+            dt_cycle_left  = BASE_SPEED - TURN_ADJUST; 
+        end
+        else begin
+            // TOO LEFT: Closer to left wall.
+            // Action: Turn Right gently (Left motor faster)
+            dt_cycle_right = BASE_SPEED - TURN_ADJUST;
+            dt_cycle_left  = BASE_SPEED + TURN_ADJUST;
+        end
+    end
 
 
 always @(posedge clk_50M) begin
