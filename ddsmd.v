@@ -11,19 +11,19 @@ module Ultrasonic(
     reg start_l, start_c, start_r;
 
     // --- FIXED INSTANTIATIONS (Added .trig connections) ---
-    distance l(
+    distance f(
         .clk_50M(clk_50M), .reset(reset), .echo_rx(echo1), 
         .start(start_l), .trig(trig1), // <--- WAS MISSING
         .op(op1), .distance_out(distance1)
     );
     
-    distance c(
+    distance r(
         .clk_50M(clk_50M), .reset(reset), .echo_rx(echo2), 
         .start(start_c), .trig(trig2), // <--- WAS MISSING
         .op(op2), .distance_out(distance2)
     );
     
-    distance r(
+    distance l(
         .clk_50M(clk_50M), .reset(reset), .echo_rx(echo3), 
         .start(start_r), .trig(trig3), // <--- WAS MISSING
         .op(op3), .distance_out(distance3)
@@ -37,7 +37,7 @@ module Ultrasonic(
         end 
         else begin
             // 1. Timer Logic
-            if (counter >= 3000000) counter <= 0;
+            if (counter >= 3000000) counter <= 0;   //3000000 => 60ms
             else counter <= counter + 1;
 
             // 2. Start Pulse Generation
