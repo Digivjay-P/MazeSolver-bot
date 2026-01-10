@@ -6,7 +6,7 @@ module Test1(
     input EN_A_L, EN_A_R,
     input EN_B_L, EN_B_R,
     input echo1, echo2, echo3,
-	 output reg LED,
+	 output reg LED, LEDS1, LEDS2, LEDS3,
     output wire trig1, trig2, trig3,
     output op1, op2, op3, // Debug LEDs
     
@@ -106,13 +106,67 @@ module Test1(
     localparam TURN_ADJUST = 4'd5; 
 	 
 	 //when front US shows bw 11 and 13 cm checking turn 
-	 localparam front_US_turn_dim_up = 16'd140; 
+	 localparam front_US_turn_dim_up = 16'd130; 
 	  // localparam front_US_turn_dim_down = 16'd110; 
-	 localparam delay = 32'd
 
     reg [15:0] diff;
 
+//  NEW: STATE MACHINE DEFINITIONS
+    // ===========================================================
+    localparam S_FOLLOW  = 2'd0; // Normal Wall Following
+    localparam S_TURN    = 2'd1; // Turning in place (90 degrees)
+    localparam S_FORWARD = 2'd2; // Blind forward move after turn
+	 
+(* keep *)	 reg [1:0] state;          // Current State
+	 reg       turn_left_mem;  // 1 = Left, 0 = Right (Remembers direction)
+    reg [31:0] state_timer;   // General purpose timer for states
 
+    // TIMING CONSTANTS (Based on 50MHz Clock)
+    // 0.5 Seconds = 25,000,000 cycles
+    // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
+    localparam TURN_TIME_DELAY    = 32'd75_000_000; // 1.5s (Tune this!)
+    localparam FORWARD_TIME_DELAY = 32'd50_000_000; // 1s (Fixed delay)
+	 
+	 
+	 
+	 always @(posedge clk_50M or negedge reset) begin
+		if(!reset) begin
+			state <= S_FOLLOW;
+			state_timer <= 0;
+         turn_left_mem <= 0;
+		end
+		else begin
+			// --- STATE MACHINE TRANSITIONS ---
+            if (state_timer > 0) begin
+                state_timer <= state_timer - 1;
+            end
+				else begin
+					//Timer expired begin to make changes
+					case(state)
+						S_FOLLOW : begin
+							if(dF < front_US_turn_dim_up) begin
+								state <= S_TURN;
+								state_timer <= TURN_TIME_DELAY;
+								if (dL > dR) 
+                                turn_left_mem <= 1'b1; // Turn Left
+                            else 
+                                turn_left_mem <= 1'b0; // Turn Right
+						       end
+				         end
+						S_TURN : begin
+							// Turn is done, now force move forward
+							state <= S_FORWARD;
+							state_timer <= FORWARD_TIME_DELAY;   //Delay of 0.5 second //loading the timer
+						end
+						
+						S_FORWARD : begin
+							// Forward burst done, resume wall following
+							state <=S_FOLLOW;
+						end
+				endcase
+		  end
+	 end
+     end
     // MOTOR LOGIC
     always @(*) begin
         // Default Motor Direction (Forward)
@@ -120,13 +174,70 @@ module Test1(
         IN3 = 1; IN4 = 0;
 
         // Calculate Difference
-        if (dL > dR) begin 
+        if (dL > dR && dR > 0) begin 
 		  diff = dL - dR;
-		  
 		  end
         else         diff = dR - dL;
 		  
-       if( dF < front_US_turn_dim_up) begin
+	case(state)
+		S_TURN : begin
+			if(turn_left_mem == 1'b1) begin           //take a left turn on the spot
+				IN1 = 1; IN2 = 0; 
+            IN3 = 0; IN4 = 1;
+				// Speed for turning
+            dt_cycle_right = 7;
+            dt_cycle_left = 7;
+			end
+			else begin              //take a right turn on the spot 
+				IN1 = 0; IN2 = 1; 
+            IN3 = 1; IN4 = 0; 
+            
+            // Speed for turning
+            dt_cycle_right = 7;
+            dt_cycle_left = 7;
+		end
+	  end
+		S_FORWARD : begin   //go straight
+			IN1 = 1; IN2 = 0; // Right Forward
+         IN3 = 1; IN4 = 0; // Left Forward
+			
+			dt_cycle_right = BASE_SPEED;
+         dt_cycle_left = BASE_SPEED;
+		end
+		S_FOLLOW : begin
+				  IN1 = 1; IN2 = 0; // Right Forward
+              IN3 = 1; IN4 = 0; // Left Forward
+                
+              if (dL < 10 || dR < 10 || diff < DEAD_BAND) begin
+                    // Go Straight (Stable or Safety)
+                    dt_cycle_right = BASE_SPEED;
+                    dt_cycle_left  = BASE_SPEED;
+              end
+              else if (dR < dL) begin
+                    // Too Close to Right -> Turn Left Gently
+                    dt_cycle_right = BASE_SPEED + TURN_ADJUST;
+                    dt_cycle_left  = BASE_SPEED - TURN_ADJUST; 
+              end
+              else begin
+                    // Too Close to Left -> Turn Right Gently
+                    dt_cycle_right = BASE_SPEED - TURN_ADJUST;
+                    dt_cycle_left  = BASE_SPEED + TURN_ADJUST;
+              end
+			end
+	endcase
+	if( turn_count == 4) begin 
+	LED <= 1'b1;
+	end 
+	if (state == 0) 
+	LEDS1 <= 1;
+	
+   if ( state == 1)
+	LEDS2 <= 1;
+   if (state == 2)
+	LEDS3 <= 1;
+end
+		  
+      /* if( dF < front_US_turn_dim_up) begin
 			if( dL > dR )begin   //left distance more than right thus turn left
 				IN1 = 1; IN2 = 0; 
             IN3 = 0; IN4 = 1;
@@ -146,7 +257,7 @@ module Test1(
 		 
 		 else begin  // Keep Wall Following 
 
-				IN1 = 1; IN2 = 0; // Right Forward
+				  IN1 = 1; IN2 = 0; // Right Forward
               IN3 = 1; IN4 = 0; // Left Forward
                 
               if (dL < 10 || dR < 10 || diff < DEAD_BAND) begin
@@ -168,7 +279,7 @@ module Test1(
 			
 						 	 
 			if( turn_count == 4) LED <= 1'b1;
-		 end
+		 end */
 		 
 		  
 		/*
