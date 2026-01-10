@@ -106,7 +106,7 @@ module Test1(
     localparam TURN_ADJUST = 4'd5; 
 	 
 	 //when front US shows bw 11 and 13 cm checking turn 
-	 localparam front_US_turn_dim_up = 16'd130; 
+	 localparam front_US_turn_dim_up = 16'd200; 
 	  // localparam front_US_turn_dim_down = 16'd110; 
 
     reg [15:0] diff;
@@ -114,9 +114,9 @@ module Test1(
 //  NEW: STATE MACHINE DEFINITIONS
     // ===========================================================
     localparam S_FOLLOW  = 2'd0; // Normal Wall Following
-    localparam S_TURN    = 2'd1; // Turning in place (90 degrees)
-    localparam S_FORWARD = 2'd2; // Blind forward move after turn
-	 
+    localparam S_TURN   = 2'd1; // Turning in place (90 degrees)
+    localparam S_FORWARD_BEFORE= 2'd2; // Blind forward move after turn
+	 localparam S_FORWARD_AFTER= 2'd3;
 (* keep *)	 reg [1:0] state;          // Current State
 	 reg       turn_left_mem;  // 1 = Left, 0 = Right (Remembers direction)
     reg [31:0] state_timer;   // General purpose timer for states
@@ -124,8 +124,10 @@ module Test1(
     // TIMING CONSTANTS (Based on 50MHz Clock)
     // 0.5 Seconds = 25,000,000 cycles
     // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
-    localparam TURN_TIME_DELAY    = 32'd75_000_000; // 1.5s (Tune this!)
-    localparam FORWARD_TIME_DELAY = 32'd50_000_000; // 1s (Fixed delay)
+    localparam TURN_TIME_DELAY    = 32'd37_500_000; // .5s (Tune this!)
+    //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
+	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
+
 	 
 	 
 	 
@@ -133,7 +135,7 @@ module Test1(
 		if(!reset) begin
 			state <= S_FOLLOW;
 			state_timer <= 0;
-         turn_left_mem <= 0;
+            turn_left_mem <= 0;
 		end
 		else begin
 			// --- STATE MACHINE TRANSITIONS ---
@@ -145,23 +147,37 @@ module Test1(
 					case(state)
 						S_FOLLOW : begin
 							if(dF < front_US_turn_dim_up) begin
-								state <= S_TURN;
-								state_timer <= TURN_TIME_DELAY;
+								state <= S_FORWARD_BEFORE;
+								state_timer <= 00 ;
 								if (dL > dR) 
                                 turn_left_mem <= 1'b1; // Turn Left
                             else 
                                 turn_left_mem <= 1'b0; // Turn Right
 						       end
 				         end
+						S_FORWARD_BEFORE :begin
+                                if(dF<150) begin
+								state <= S_TURN;
+								state_timer <= TURN_TIME_DELAY;
+                                end
+                                else 
+                                state <= S_FORWARD_BEFORE;
+						
+						end
 						S_TURN : begin
 							// Turn is done, now force move forward
-							state <= S_FORWARD;
-							state_timer <= FORWARD_TIME_DELAY;   //Delay of 0.5 second //loading the timer
+							state <= S_FORWARD_AFTER;
+							state_timer <= 0;   //Delay of 0.5 second //loading the timer
 						end
 						
-						S_FORWARD : begin
+						S_FORWARD_AFTER: begin
 							// Forward burst done, resume wall following
+                            if(dF> 310) 
 							state <=S_FOLLOW;
+                            else if (dF<= 150) begin
+									 state <= S_FOLLOW;
+									 end
+							
 						end
 				endcase
 		  end
@@ -197,7 +213,14 @@ module Test1(
             dt_cycle_left = 7;
 		end
 	  end
-		S_FORWARD : begin   //go straight
+		S_FORWARD_BEFORE: begin   //go straight
+			IN1 = 1; IN2 = 0; // Right Forward
+         IN3 = 1; IN4 = 0; // Left Forward
+			
+			dt_cycle_right = BASE_SPEED;
+         dt_cycle_left = BASE_SPEED;
+		end
+		S_FORWARD_AFTER: begin   //go straight
 			IN1 = 1; IN2 = 0; // Right Forward
          IN3 = 1; IN4 = 0; // Left Forward
 			
