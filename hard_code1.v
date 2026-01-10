@@ -1,0 +1,170 @@
+(* DONT_TOUCH = "true"*)
+module Test1(
+    input clk_50M, 
+    input ir_in_C, ir_in_R, ir_inL,
+    input reset,        // Assumed Active Low based on enc_L usage
+    input EN_A_L, EN_A_R,
+    input EN_B_L, EN_B_R,
+    input echo1, echo2, echo3,
+
+    output wire trig1, trig2, trig3,
+    output op1, op2, op3, // Debug LEDs
+    
+    output wire ENA, ENB,       // PWM Enable (Speed)
+    output reg IN1, IN2, IN3, IN4  // Motor Direction
+);
+
+    // 1. WIRES & ENCODERS
+    wire [25:0] encoder_counter_R;
+    wire [25:0] encoder_counter_L;
+
+    encoder enc_L(.clk(clk_50M), .rst_n(reset), .A(EN_A_L), .B(EN_B_L), .counter(encoder_counter_L));
+    encoder enc_R(.clk(clk_50M), .rst_n(reset), .A(EN_A_R), .B(EN_B_R), .counter(encoder_counter_R));
+    
+    // 2. INTERNAL WIRES
+    (* keep *) wire [15:0] dL; // Left Distance
+    (* keep *) wire [15:0] dF; // Front Distance
+    (* keep *) wire [15:0] dR; // Right Distance
+    
+    // Ultrasonic Module
+    Ultrasonic u0 (
+        .clk_50M(clk_50M), .reset(reset), .echo1(echo1), .echo2(echo2), .echo3(echo3), 
+        .trig1(trig1), .trig2(trig2), .trig3(trig3),
+        .distance1(dF), 
+        .distance2(dR), 
+        .distance3(dL),
+        .op1(op1), .op2(op2), .op3(op3)
+    );
+    
+    parameter AVERAGE_DISTANCE = 200;
+    wire obst; 
+    wire clk_3125KHz;
+    
+    // 3. GENERATORS & SENSORS
+    frequency_scaling s1( .clk_50M(clk_50M), .clk_3125KHz(clk_3125KHz));
+
+    // Changed to reg as required for procedural assignment
+(* keep *)    reg [3:0] dt_cycle_left, dt_cycle_right;
+
+    pwm_generator right(.clk_3125KHz(clk_3125KHz), .duty_cycle(dt_cycle_right), .pwm_signal(ENA));
+    pwm_generator left(.clk_3125KHz(clk_3125KHz), .duty_cycle(dt_cycle_left), .pwm_signal(ENB));
+    
+    // Front IR Sensor Logic
+    // obst becomes 1 when Wall is detected
+    ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_C), .op(obst));
+
+
+
+    // ===========================================================
+    //  ROBUST TURN COUNTER (With Cooldown/Debounce)
+    // ===========================================================
+    reg [7:0] turn_count;      // Stores the number of turns
+    reg obst_prev;             // To store previous state
+    reg [31:0] cooldown_timer; // Timer to ignore noise after a turn
+
+    // CONFIGURATION: Cooldown Time
+    // 50,000,000 cycles = 1 second. 
+    // Adjust this based on how long your robot takes to turn.
+    // If it double counts, INCREASE this. If it misses the next wall, DECREASE this.
+    localparam LOCKOUT_TIME = 32'd75_000_000; // 1.5 Seconds
+
+    always @(posedge clk_50M or negedge reset) begin
+        if (reset == 0) begin
+            turn_count <= 0;
+            obst_prev <= 0;
+            cooldown_timer <= 0;
+        end else begin
+            
+            // 1. If the timer is running, just count down and IGNORE sensors
+            if (cooldown_timer > 0) begin
+                cooldown_timer <= cooldown_timer - 1;
+                // We do NOT update obst_prev here to prevent edge glitches
+            end 
+            
+            // 2. If timer is 0, we are ready to detect a new turn
+            else begin
+                // Detect Rising Edge (0 -> 1)
+                if (obst == 1'b1 && obst_prev == 1'b0) begin
+                    turn_count <= turn_count + 1;
+                    
+                    // START THE COOLDOWN TIMER
+                    // The counter will now be "frozen" for 1.5 seconds
+                    cooldown_timer <= LOCKOUT_TIME; 
+                end
+                
+                // Update previous state
+                obst_prev <= obst; 
+            end
+        end
+    end
+    // ===========================================================
+    // -----------------------------------------------------------
+    //  TUNING PARAMETERS
+    // -----------------------------------------------------------
+    localparam DEAD_BAND = 16'd30; 
+    localparam BASE_SPEED = 4'd7; 
+    localparam TURN_ADJUST = 4'd2; 
+
+    reg [15:0] diff;
+
+    // MOTOR LOGIC
+    always @(*) begin
+        // Default Motor Direction (Forward)
+        IN1 = 1; IN2 = 0; 
+        IN3 = 1; IN4 = 0;
+
+        // Calculate Difference
+        if (dL > dR) diff = dL - dR;
+        else         diff = dR - dL;
+
+        // ------------------------------------
+        // PRIORITY 1: OBSTACLE (Turn Logic)
+        // ------------------------------------
+       if ( obst) begin 
+		 if ( turn_count == 1 || turn_count == 2) begin 
+            // Turn Right (Spot Turn)
+            IN1 = 1; IN2 = 0; 
+            IN3 = 0; IN4 = 1; 
+            
+            // Speed for turning
+            dt_cycle_right = 7;
+            dt_cycle_left = 7;
+        end 
+		  else if ( turn_count == 3 || turn_count == 4 ) begin 
+		    IN1 = 0; IN2 = 1; 
+            IN3 = 1; IN4 = 0; 
+            
+            // Speed for turning
+            dt_cycle_right = 7;
+            dt_cycle_left = 7;
+		  end 
+        end 
+        // ------------------------------------
+        // PRIORITY 2: SENSOR SAFETY
+        // ------------------------------------
+        else if (dL < 10 || dR < 10) begin
+            dt_cycle_right = BASE_SPEED;
+            dt_cycle_left  = BASE_SPEED;
+        end
+        
+        // ------------------------------------
+        // PRIORITY 3: WALL FOLLOWING
+        // ------------------------------------
+        else if (diff < DEAD_BAND) begin
+            // Go Straight
+            dt_cycle_right = BASE_SPEED;
+            dt_cycle_left  = BASE_SPEED;
+        end
+        else if (dR < dL) begin
+            // Too Close to Right -> Turn Left
+            dt_cycle_right = BASE_SPEED + TURN_ADJUST;
+            dt_cycle_left  = BASE_SPEED - TURN_ADJUST; 
+        end
+        else begin
+            // Too Close to Left -> Turn Right
+            dt_cycle_right = BASE_SPEED - TURN_ADJUST;
+            dt_cycle_left  = BASE_SPEED + TURN_ADJUST;
+        end
+    end
+
+endmodule
