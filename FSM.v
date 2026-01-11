@@ -1,7 +1,7 @@
 (* DONT_TOUCH = "true"*)
 module Test1(
     input clk_50M, 
-    input ir_in_C, ir_in_R, ir_inL,
+    input ir_in_F, ir_in_R, ir_in_L,
     input reset,        // Assumed Active Low based on enc_L usage
     input EN_A_L, EN_A_R,
     input EN_B_L, EN_B_R,
@@ -13,18 +13,15 @@ module Test1(
     output wire ENA, ENB,       // PWM Enable (Speed)
     output reg IN1, IN2, IN3, IN4  // Motor Direction
 );
-
-    // 1. WIRES & ENCODERS
-    wire [25:0] encoder_counter_R;
-    wire [25:0] encoder_counter_L;
-
-    encoder enc_L(.clk(clk_50M), .rst_n(reset), .A(EN_A_L), .B(EN_B_L), .counter(encoder_counter_L));
-    encoder enc_R(.clk(clk_50M), .rst_n(reset), .A(EN_A_R), .B(EN_B_R), .counter(encoder_counter_R));
     
     // 2. INTERNAL WIRES
     (* keep *) wire [15:0] dL; // Left Distance
     (* keep *) wire [15:0] dF; // Front Distance
     (* keep *) wire [15:0] dR; // Right Distance
+    wire signed [19:0] encoder_counter_L_current, encoder_counter_R_current;  //reads encoder current value
+    encoder enc_R(.clk_50M(clk_50M), .reset(reset), .flag(zero_flag), .en1(EN_A_R), .en2(EN_A_L), .counter(encoder_counter_R_current));
+    encoder enc_L(.clk_50M(clk_50M), .reset(reset), .flag(zero_flag), .en1(EN_B_R), .en2(EN_B_L), .counter(encoder_counter_L_current));
+
     
     // Ultrasonic Module
     Ultrasonic u0 (
@@ -37,7 +34,7 @@ module Test1(
     );
     
     parameter AVERAGE_DISTANCE = 200;
-    wire obst; 
+    wire obst_f, obst_r, obst_l; 
     wire clk_3125KHz;
     
     // 3. GENERATORS & SENSORS
@@ -51,7 +48,10 @@ module Test1(
     
     // Front IR Sensor Logic
     // obst becomes 1 when Wall is detected
-    ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_C), .op(obst));
+    ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_F), .op(obst_f));
+	 ir i_left(.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_L), .op(obst_l));
+	 ir i_right (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_R), .op(obst_r));
+
 
 
 
@@ -84,7 +84,7 @@ module Test1(
             // 2. If timer is 0, we are ready to detect a new turn
             else begin
                 // Detect Rising Edge (0 -> 1)
-                if (obst == 1'b1 && obst_prev == 1'b0) begin
+                if (obst_f== 1'b1 && obst_prev == 1'b0) begin
                     turn_count <= turn_count + 1;
                     
                     // START THE COOLDOWN TIMER
@@ -93,7 +93,7 @@ module Test1(
                 end
                 
                 // Update previous state
-                obst_prev <= obst; 
+                obst_prev <= obst_f; 
             end
         end
     end
@@ -113,28 +113,34 @@ module Test1(
 
 //  NEW: STATE MACHINE DEFINITIONS
     // ===========================================================
-    localparam S_FOLLOW  = 2'd0; // Normal Wall Following
-    localparam S_TURN   = 2'd1; // Turning in place (90 degrees)
-    localparam S_FORWARD_BEFORE= 2'd2; // Blind forward move after turn
-	 localparam S_FORWARD_AFTER= 2'd3;
-(* keep *)	 reg [1:0] state;          // Current State
-	 reg       turn_left_mem;  // 1 = Left, 0 = Right (Remembers direction)
+    localparam S_FOLLOW  = 3'd0; // Normal Wall Following
+    localparam S_TURN   = 3'd1; // Turning in place (90 degrees)
+    localparam S_FORWARD_BEFORE= 3'd2; // Blind forward move after turn
+	 localparam S_FORWARD_AFTER= 3'd3;
+	 localparam S_STOP_BEFORE= 3'd4;
+	 localparam S_STOP_AFTER = 3'd5;
+	 localparam S_BOOT = 3'd6;  //boot time
+	 
+(* keep *)	 reg [2:0] state;          // Current State
+	 reg  [1:0] turn_left_mem;  // 1 = Left, 0 = Right (Remembers direction)
     reg [31:0] state_timer;   // General purpose timer for states
 
     // TIMING CONSTANTS (Based on 50MHz Clock)
     // 0.5 Seconds = 25,000,000 cycles
     // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
-    localparam TURN_TIME_DELAY    = 32'd25_000_000; // .5s (Tune this!)
-    localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
-	 localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
+    localparam TURN_TIME_DELAY    = 32'd40_000_000; // .75s (Tune this!)
+	 localparam STOP_TIME_DELAY = 32'd25_000_000;
+	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
+    //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
+	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
 
 	 
-	 
+reg zero_flag;
 	 
 	 always @(posedge clk_50M or negedge reset) begin
 		if(!reset) begin
-			state <= S_FOLLOW;
-			state_timer <= 0;
+			state <= S_BOOT;
+			state_timer <= BOOT_TIME_DELAY;
          turn_left_mem <= 0;
 		end
 		else begin
@@ -144,31 +150,79 @@ module Test1(
             end
 				else begin
 					//Timer expired begin to make changes
+                zero_flag <= 1'b0;
 					case(state)
+						S_BOOT : begin 
+							state <=S_FOLLOW;
+						end
 						S_FOLLOW : begin
-							if(dF < front_US_turn_dim_up) begin
+							if(dF < front_US_turn_dim_up && dF>2) begin
 								state <= S_FORWARD_BEFORE;
-								state_timer <= FORWARD_TIME_DELAY_BEFORE;
-								if (dL > dR) 
-                                turn_left_mem <= 1'b1; // Turn Left
-                            else 
-                                turn_left_mem <= 1'b0; // Turn Right
+								//state_timer <= 00 ;
+								if ((!obst_l && obst_r) || (!obst_l && !obst_r)) 
+                                turn_left_mem <= 2'd1; // Turn Left
+                            else if(obst_l && !obst_r)
+                                turn_left_mem <= 2'd0; // Turn Right
+									else turn_left_mem <= 2'd2;  //U-TURN 
 						       end
+								 
 				         end
 						S_FORWARD_BEFORE :begin
-								state <= S_TURN;
-								state_timer <= TURN_TIME_DELAY;
+                                if(obst_f ) begin
+								state <= S_STOP_BEFORE;
+								zero_flag <= 1'b1;	
+								state_timer <= STOP_TIME_DELAY;
+                                end
+                                else 
+                                state <= S_FORWARD_BEFORE;
 						
 						end
+						S_STOP_BEFORE: begin
+							state <= S_TURN;
+							state_timer <= TURN_TIME_DELAY;
+						end
 						S_TURN : begin
+						    zero_flag <=1'b0;
 							// Turn is done, now force move forward
+//                            if(turn_left_mem == 2'd1) begin    //left turn
+//                                if(encoder_counter_R_current > -20'sd523800 && encoder_counter_R_current < 0) begin
+//                                    state <= S_STOP_AFTER;
+//                                    state_timer <= STOP_TIME_DELAY;
+//                                end
+//                                else state <= S_TURN;
+//                            end
+//                            else if(turn_left_mem == 2'd0) begin //right right
+//                                if(encoder_counter_R_current > 20'sd1650 )begin
+//                                    state <= S_STOP_AFTER;
+//                                     state_timer <= STOP_TIME_DELAY;
+//                                end
+//                                else state <= S_TURN;
+//                            end
+//                            else begin         //U turn 
+//                                if(encoder_counter_R_current > 20'sd3300)begin
+//                                        state <= S_STOP_AFTER;
+//                                         state_timer <= STOP_TIME_DELAY;
+//                                end
+//                                else state <= S_TURN;
+//                            end
+							// state <= S_STOP_AFTER;
+							// state_timer <= STOP_TIME_DELAY;   //Delay of 0.2 SECOND FOR THE BOT TO STOP BEFORE MOVING FORWARD
+							state <= S_STOP_AFTER;
+							state_timer <= STOP_TIME_DELAY;
+						end
+						S_STOP_AFTER : begin
 							state <= S_FORWARD_AFTER;
-							state_timer <= FORWARD_TIME_DELAY_AFTER;   //Delay of 0.5 second //loading the timer
+							state_timer <= 0;	
 						end
 						
 						S_FORWARD_AFTER: begin
 							// Forward burst done, resume wall following
-							state <=S_FOLLOW;
+                            if(obst_f) 
+							      state <= S_FOLLOW;
+                            else begin
+									state <= S_FORWARD_AFTER;
+								end
+							
 						end
 				endcase
 		  end
@@ -180,6 +234,7 @@ module Test1(
         IN1 = 1; IN2 = 0; 
         IN3 = 1; IN4 = 0;
 
+
         // Calculate Difference
         if (dL > dR && dR > 0) begin 
 		  diff = dL - dR;
@@ -187,22 +242,49 @@ module Test1(
         else         diff = dR - dL;
 		  
 	case(state)
+		S_BOOT: begin
+		IN1 = 1; IN2 = 1;
+		IN3 = 1; IN4 = 1;
+		dt_cycle_right = 0;
+      dt_cycle_left = 0;
+		end
+		S_STOP_BEFORE :begin   //motor brake
+		IN1 = 1; IN2 = 1;
+		IN3 = 1; IN4 = 1;
+		dt_cycle_right = 0;
+      dt_cycle_left = 0;
+		end
+		S_STOP_AFTER :begin   //motor brake
+		IN1 = 1; IN2 = 1;
+		IN3 = 1; IN4 = 1;
+		dt_cycle_right = 0;
+      dt_cycle_left = 0;
+		end
 		S_TURN : begin
-			if(turn_left_mem == 1'b1) begin           //take a left turn on the spot
-				IN1 = 1; IN2 = 0; 
+			if(turn_left_mem == 2'd1) begin     
+			//take a left turn on the spot
+			IN1 = 1; IN2 = 0; 
             IN3 = 0; IN4 = 1;
 				// Speed for turning
             dt_cycle_right = 7;
             dt_cycle_left = 7;
 			end
-			else begin              //take a right turn on the spot 
-				IN1 = 0; IN2 = 1; 
+			else if( turn_left_mem == 2'd0) begin              //take a right turn on the spot 
+			IN1 = 0; IN2 = 1; 
             IN3 = 1; IN4 = 0; 
             
             // Speed for turning
             dt_cycle_right = 7;
             dt_cycle_left = 7;
 		end
+			else begin
+			IN1 = 1; IN2 = 0;
+			IN3 = 0; IN4 = 1;
+			dt_cycle_right = 12;
+			dt_cycle_left  = 7;
+			
+			
+			end
 	  end
 		S_FORWARD_BEFORE: begin   //go straight
 			IN1 = 1; IN2 = 0; // Right Forward
