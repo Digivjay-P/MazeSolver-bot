@@ -18,9 +18,14 @@ module Test1(
     (* keep *) wire [15:0] dL; // Left Distance
     (* keep *) wire [15:0] dF; // Front Distance
     (* keep *) wire [15:0] dR; // Right Distance
-    wire signed [19:0] encoder_counter_L_current, encoder_counter_R_current;  //reads encoder current value
-    encoder enc_R(.clk_50M(clk_50M), .reset(reset), .flag(zero_flag), .en1(EN_A_R), .en2(EN_A_L), .counter(encoder_counter_R_current));
-    encoder enc_L(.clk_50M(clk_50M), .reset(reset), .flag(zero_flag), .en1(EN_B_R), .en2(EN_B_L), .counter(encoder_counter_L_current));
+    wire  [19:0] encoder_counter_L_current, encoder_counter_R_current;	 //reads encoder current value
+	 reg [19:0] L_ref, R_ref;
+	 wire [19:0] L_diff, R_diff;
+	 encoder enc_R(.clk_50M(clk_50M), .reset(reset), .en1(EN_A_R), .en2(EN_B_R), .counter(encoder_counter_R_current));
+    encoder enc_L(.clk_50M(clk_50M), .reset(reset), .en1(EN_A_L), .en2(EN_B_L), .counter(encoder_counter_L_current));
+	 assign L_diff = L_ref - encoder_counter_L_current;
+	 assign R_diff = encoder_counter_R_current - R_ref;
+	 
 
     
     // Ultrasonic Module
@@ -51,7 +56,6 @@ module Test1(
     ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_F), .op(obst_f));
 	 ir i_left(.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_L), .op(obst_l));
 	 ir i_right (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_R), .op(obst_r));
-
 
 
 
@@ -110,7 +114,7 @@ module Test1(
 	  // localparam front_US_turn_dim_down = 16'd110; 
 
     reg [15:0] diff;
-
+	
 //  NEW: STATE MACHINE DEFINITIONS
     // ===========================================================
     localparam S_FOLLOW  = 3'd0; // Normal Wall Following
@@ -128,11 +132,12 @@ module Test1(
     // TIMING CONSTANTS (Based on 50MHz Clock)
     // 0.5 Seconds = 25,000,000 cycles
     // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
-    localparam TURN_TIME_DELAY    = 32'd48_500_000; // 0.9765s (Tune this!)
+    localparam TURN_TIME_DELAY    = 32'd37_500_000; // .75s (Tune this!)
 	 localparam STOP_TIME_DELAY = 32'd25_000_000;
 	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
 	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
+	localparam turn_param = 1700;
 
 	 
 reg zero_flag;
@@ -168,7 +173,7 @@ reg zero_flag;
 								 
 				         end
 						S_FORWARD_BEFORE :begin
-                                if(obst_f) begin
+                                if(obst_f ) begin
 								state <= S_STOP_BEFORE;
 								zero_flag <= 1'b1;	
 								state_timer <= STOP_TIME_DELAY;
@@ -179,36 +184,36 @@ reg zero_flag;
 						end
 						S_STOP_BEFORE: begin
 							state <= S_TURN;
-							state_timer <= TURN_TIME_DELAY;
+							state_timer <= 0;
+							L_ref <= encoder_counter_L_current;
+							R_ref <= encoder_counter_R_current;
 						end
 						S_TURN : begin
 						    zero_flag <=1'b0;
 							// Turn is done, now force move forward
-//                            if(turn_left_mem == 2'd1) begin    //left turn
-//                                if(encoder_counter_R_current > -20'sd523800 && encoder_counter_R_current < 0) begin
-//                                    state <= S_STOP_AFTER;
-//                                    state_timer <= STOP_TIME_DELAY;
-//                                end
-//                                else state <= S_TURN;
-//                            end
-//                            else if(turn_left_mem == 2'd0) begin //right right
-//                                if(encoder_counter_R_current > 20'sd1650 )begin
-//                                    state <= S_STOP_AFTER;
-//                                     state_timer <= STOP_TIME_DELAY;
-//                                end
-//                                else state <= S_TURN;
-//                            end
-//                            else begin         //U turn 
-//                                if(encoder_counter_R_current > 20'sd3300)begin
-//                                        state <= S_STOP_AFTER;
-//                                         state_timer <= STOP_TIME_DELAY;
-//                                end
-//                                else state <= S_TURN;
-//                            end
+                            if(turn_left_mem == 2'd1) begin    //left turn
+                                if(L_diff > turn_param) begin
+                                    state <= S_STOP_AFTER;
+                                    state_timer <= STOP_TIME_DELAY;
+                                end
+                                else state <= S_TURN;
+                            end
+                            else if(turn_left_mem == 2'd0) begin //right right
+                                if(R_diff > turn_param)begin
+                                    state <= S_STOP_AFTER;
+                                     state_timer <= STOP_TIME_DELAY;
+                                end
+                                else state <= S_TURN;
+                            end
+                            else begin         //U turn 
+                                if(encoder_counter_R_current > 20'd3400)begin
+                                        state <= S_STOP_AFTER;
+                                         state_timer <= STOP_TIME_DELAY;
+                                end
+                                else state <= S_TURN;
+                            end
 							// state <= S_STOP_AFTER;
 							// state_timer <= STOP_TIME_DELAY;   //Delay of 0.2 SECOND FOR THE BOT TO STOP BEFORE MOVING FORWARD
-							state <= S_STOP_AFTER;
-							state_timer <= STOP_TIME_DELAY;
 						end
 						S_STOP_AFTER : begin
 							state <= S_FORWARD_AFTER;
@@ -377,62 +382,6 @@ end
 			if( turn_count == 4) LED <= 1'b1;
 		 end */
 		 
-		  
-		/*
-        // ------------------------------------
-        // PRIORITY 1: OBSTACLE (Turn Logic)
-        // ------------------------------------
-       if ( obst) begin 
-		 if ( turn_count == 2 || turn_count == 5) begin //Right
-            // Turn Right (Spot Turn)
-            IN1 = 1; IN2 = 0; 
-            IN3 = 0; IN4 = 1; 
-            
-            // Speed for turning
-            dt_cycle_right = 7;
-            dt_cycle_left = 7;
-        end 
-		  else if ( turn_count == 2 || turn_count == 3 || turn_count ==  ) begin //Left
-		    IN1 = 0; IN2 = 1; 
-            IN3 = 1; IN4 = 0; 
-           
-            // Speed for turning
-            dt_cycle_right = 7;
-            dt_cycle_left = 7;
-		  end 
-		  else if ( turn_count == 6 ) begin 
-		   IN1 = 0; IN2 = 1; 
-            IN3 = 0; IN4 = 1; 
-				 dt_cycle_right = 11;
-            dt_cycle_left = 8;
-				end 
-        end 
-        // ------------------------------------
-        // PRIORITY 2: SENSOR SAFETY
-        // ------------------------------------
-        else if (dL < 10 || dR < 10) begin
-            dt_cycle_right = BASE_SPEED;
-            dt_cycle_left  = BASE_SPEED;
-        end
-        
-        // ------------------------------------
-        // PRIORITY 3: WALL FOLLOWING
-        // ------------------------------------
-        else if (diff < DEAD_BAND) begin
-            // Go Straight
-            dt_cycle_right = BASE_SPEED;
-            dt_cycle_left  = BASE_SPEED;
-        end
-        else if (dR < dL) begin
-            // Too Close to Right -> Turn Left
-            dt_cycle_right = BASE_SPEED + TURN_ADJUST;
-            dt_cycle_left  = BASE_SPEED - TURN_ADJUST; 
-        end
-        else begin
-            // Too Close to Left -> Turn Right
-            dt_cycle_right = BASE_SPEED - TURN_ADJUST;
-            dt_cycle_left  = BASE_SPEED + TURN_ADJUST;
-        end
-		  */
+		
 
 endmodule
