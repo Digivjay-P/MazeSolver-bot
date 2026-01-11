@@ -128,7 +128,7 @@ module Test1(
     // TIMING CONSTANTS (Based on 50MHz Clock)
     // 0.5 Seconds = 25,000,000 cycles
     // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
-    localparam TURN_TIME_DELAY    = 32'd40_000_000; // .75s (Tune this!)
+    localparam TURN_TIME_DELAY    = 32'd48_500_000; // 0.9765s (Tune this!)
 	 localparam STOP_TIME_DELAY = 32'd25_000_000;
 	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
@@ -168,7 +168,7 @@ reg zero_flag;
 								 
 				         end
 						S_FORWARD_BEFORE :begin
-                                if(obst_f ) begin
+                                if(obst_f) begin
 								state <= S_STOP_BEFORE;
 								zero_flag <= 1'b1;	
 								state_timer <= STOP_TIME_DELAY;
