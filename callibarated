@@ -70,7 +70,7 @@ module Test1(
     // 50,000,000 cycles = 1 second. 
     // Adjust this based on how long your robot takes to turn.
     // If it double counts, INCREASE this. If it misses the next wall, DECREASE this.
-    localparam LOCKOUT_TIME = 32'd75_000_000; // 1.5 Seconds
+    localparam LOCKOUT_TIME = 32'd80_000_000; // 1.5 Seconds
 
     always @(posedge clk_50M or negedge reset) begin
         if (reset == 0) begin
@@ -107,7 +107,7 @@ module Test1(
     // -----------------------------------------------------------
     localparam DEAD_BAND = 16'd30;   //3cm
     localparam BASE_SPEED = 4'd10; 
-    localparam TURN_ADJUST = 4'd3; 
+    localparam TURN_ADJUST = 4'd5; 
 	 parameter RIGHT_MOTOR_TRIM = 1; // Add extra power to Right motor
 	 
 	 localparam front_US_turn_dim_up = 16'd200; 
@@ -138,8 +138,8 @@ module Test1(
 	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
 	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
-	localparam turn_R= 1167;
-	localparam turn_L = 1582;  //earlier 1577
+	localparam turn_R= 1175;
+	localparam turn_L = 1585;  //earlier 1577
 	localparam turn_after_forward = 1000;
 	 
 	 always @(posedge clk_50M or negedge reset) begin
@@ -159,18 +159,18 @@ module Test1(
 						else state <= S_BOOT;   //stay in boot
 						end
 					S_FOLLOW : begin  
-								//state_timer <= 00 ;
-							if ((!obst_l && obst_r) ) begin   //obstacle in right 
+								//state_timer <= 00 ;								
+							if ((!obst_l && obst_r) && !(turn_count >= 3 && turn_count < 5) && !(turn_count <= 7 && turn_count >9)) begin   //obstacle in right 
                           turn_left_mem <= 2'd1; // Turn Left  
 								  state <= S_FORWARD_BEFORE; 
 								  state_timer <= FORWARD_TIMEOUT;
 								end
-							else if((obst_l && !obst_r)) begin  //obstacle in left 
+							else if((obst_l && !obst_r) && (turn_count >= 3)) begin  //obstacle in left 
                                 turn_left_mem <= 2'd0; // Turn Right
 										  state <= S_FORWARD_BEFORE;
 										  state_timer <= FORWARD_TIMEOUT;
 										  end
-							else if (!obst_l && !obst_r)begin       //junction
+							else if (!obst_l && !obst_r )begin       //junction
 										if(turn_count >= 8 && turn_count < 10) begin   //turn right 
 											turn_left_mem <= 2'd0;
 											state <= S_FORWARD_BEFORE;
@@ -182,18 +182,18 @@ module Test1(
 										  state_timer <= FORWARD_TIMEOUT;
 										end
 									end
-							 else if (obst_f && obst_r && obst_l  && (turn_count > 4))begin   //both side obstacle and forward distance less than threshold
+							 else if (obst_f && obst_r && obst_l  && (turn_count > 6))begin   //both side obstacle and forward distance less than threshold
 									turn_left_mem <= 2'd2;  //U-TURN 
 									state <= S_STOP_BEFORE; 
 									state_timer <= STOP_TIME_DELAY; end
 							 else state <= S_FOLLOW; 
-				         end
+						end
 						S_FORWARD_BEFORE :begin
                          if(obst_f) begin
 									state <= S_STOP_BEFORE;
 									state_timer <= STOP_TIME_DELAY;
 								 end
-								 else if(state_timer == 0) begin
+								 else if(state_timer == 0 && (turn_count > 4))begin
 									state <= S_STOP_BEFORE;
 									state_timer <= STOP_TIME_DELAY;
 								 end
