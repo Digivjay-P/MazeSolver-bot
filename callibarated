@@ -107,11 +107,11 @@ module Test1(
     // -----------------------------------------------------------
     localparam DEAD_BAND = 16'd30;   //3cm
     localparam BASE_SPEED = 4'd10; 
-    localparam TURN_ADJUST = 4'd2; 
+    localparam TURN_ADJUST = 4'd5; 
+	 parameter RIGHT_MOTOR_TRIM = 1; // Add extra power to Right motor
 	 
-	 //when front US shows bw 11 and 13 cm checking turn 
 	 localparam front_US_turn_dim_up = 16'd200; 
-	  // localparam front_US_turn_dim_down = 16'd110; 
+	 // localparam front_US_turn_dim_down = 16'd110; 
 
     reg [15:0] diff;
 	
@@ -124,21 +124,22 @@ module Test1(
 	 localparam S_STOP_BEFORE= 3'd4;
 	 localparam S_STOP_AFTER = 3'd5;
 	 localparam S_BOOT = 3'd6;  //boot time
+	 localparam S_HARDCODE = 3'd7;
 	 
 (* keep *)	 reg [2:0] state;          // Current State
-	 reg  [1:0] turn_left_mem;  // 1 = Left, 0 = Right (Remembers direction)
-    reg [31:0] state_timer;   // General purpose timer for states
+				 reg  [1:0] turn_left_mem;  // 1 = Left, 0 = Right 2= U_turn; (Remembers direction)
+				 reg [31:0] state_timer;   // General purpose timer for states
 
     // TIMING CONSTANTS (Based on 50MHz Clock)
     // 0.5 Seconds = 25,000,000 cycles
     // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
-    localparam TURN_TIME_DELAY    = 32'd37_500_000; // .75s (Tune this!)
-	 localparam STOP_TIME_DELAY = 32'd25_000_000;
+    localparam FORWARD_TIMEOUT = 32'd25_500_000;   // 0.5 second
+	 localparam STOP_TIME_DELAY = 32'd25_000_000;  //0.5 seconds
 	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
 	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
 	localparam turn_R= 1167;
-	localparam turn_L = 1477;
+	localparam turn_L = 1577;
 	localparam turn_after_forward = 900;
 	 
 	 always @(posedge clk_50M or negedge reset) begin
@@ -152,38 +153,58 @@ module Test1(
             if (state_timer > 0) begin
                 state_timer <= state_timer - 1;
             end
-				else begin
-					case(state)
-						S_BOOT : begin 
-							state <=S_FOLLOW;
+				case(state)
+					S_BOOT : begin 
+						if(state_timer == 0) state <= S_FOLLOW;  //when the time expired change state
+						else state <= S_BOOT;   //stay in boot
 						end
-						S_FOLLOW : begin
+					S_FOLLOW : begin  
 								//state_timer <= 00 ;
-								if ((!obst_l && obst_r)) begin
-                                turn_left_mem <= 2'd1; // Turn Left
-										  state <= S_FORWARD_BEFORE; end
-                           else if((obst_l && !obst_r) || (!obst_l && !obst_r)) begin
+							if ((!obst_l && obst_r) ) begin   //obstacle in right 
+                          turn_left_mem <= 2'd1; // Turn Left  
+								  state <= S_FORWARD_BEFORE; 
+								  state_timer <= FORWARD_TIMEOUT;
+								end
+							else if((obst_l && !obst_r)) begin  //obstacle in left 
                                 turn_left_mem <= 2'd0; // Turn Right
-										  state <= S_FORWARD_BEFORE; end
-									else if ((dF < front_US_turn_dim_up) && obst_r && obst_l )begin 
+										  state <= S_FORWARD_BEFORE;
+										  state_timer <= FORWARD_TIMEOUT;
+										  end
+							else if (!obst_l && !obst_r)begin       //junction
+										if(turn_count >= 8 && turn_count < 10) begin   //turn right 
+											turn_left_mem <= 2'd0;
+											state <= S_FORWARD_BEFORE;
+											state_timer <= FORWARD_TIMEOUT; 
+										end
+										else begin
+										  turn_left_mem <= 2'd1; // Turn Left  
+										  state <= S_FORWARD_BEFORE; 
+										  state_timer <= FORWARD_TIMEOUT;
+										end
+									end
+							 else if ((dF < front_US_turn_dim_up) && obst_r && obst_l )begin   //both side obstacle and forward distance less than threshold
 									turn_left_mem <= 2'd2;  //U-TURN 
-									state <= S_TURN; end
-									else state <= S_FOLLOW; 
+									state <= S_STOP_BEFORE; end
+							 else state <= S_FOLLOW; 
 				         end
 						S_FORWARD_BEFORE :begin
-                                if(obst_f ) begin
-								state <= S_STOP_BEFORE;
-								state_timer <= STOP_TIME_DELAY;
-                                end
-                                else 
-                                state <= S_FORWARD_BEFORE;
-						
+                         if(obst_f) begin
+									state <= S_STOP_BEFORE;
+									state_timer <= STOP_TIME_DELAY;
+								 end
+								 else if(state_timer == 0) begin
+									state <= S_STOP_BEFORE;
+									state_timer <= STOP_TIME_DELAY;
+								 end
+								 else state <= S_FORWARD_BEFORE;
 						end
 						S_STOP_BEFORE: begin
-							state <= S_TURN;
+							if(state_timer == 0) begin state <= S_TURN;
 							state_timer <= 0;
 							L_ref <= encoder_counter_L_current;
 							R_ref <= encoder_counter_R_current;
+							end
+							else state <= S_STOP_BEFORE;
 						end
 						S_TURN : begin
 							// Turn is done, now force move forward
@@ -201,20 +222,21 @@ module Test1(
                                 end
                                 else state <= S_TURN;
                             end
-                            else begin         //U turn 
-                                if(encoder_counter_R_current > 20'd2400)begin
+                            else begin         //U turn from right
+                                if(R_diff > (2 * turn_R))begin
                                         state <= S_STOP_AFTER;
-                                         state_timer <= STOP_TIME_DELAY;
+                                        state_timer <= STOP_TIME_DELAY;
                                 end
                                 else state <= S_TURN;
                             end
-							// state <= S_STOP_AFTER;
-							// state_timer <= STOP_TIME_DELAY;   //Delay of 0.2 SECOND FOR THE BOT TO STOP BEFORE MOVING FORWARD
 						end
 						S_STOP_AFTER : begin
+						if(state_timer == 0)begin
 							state <= S_FORWARD_AFTER;
 							L_ref <= encoder_counter_L_current;
 							state_timer <= 0;	
+							end
+						else state <= S_STOP_AFTER;
 						end
 						
 						S_FORWARD_AFTER: begin
@@ -229,7 +251,6 @@ module Test1(
 				endcase
 		  end
 	 end
-     end
     // MOTOR LOGIC
     always @(*) begin
         // Default Motor Direction (Forward)
@@ -282,7 +303,7 @@ module Test1(
 			else begin
 			IN1 = 1; IN2 = 0;
 			IN3 = 0; IN4 = 1;
-			dt_cycle_right = 12;
+			dt_cycle_right = 7;
 			dt_cycle_left  = 7;
 			
 			
@@ -308,7 +329,7 @@ module Test1(
                 
               if (dL < 10 || dR < 10 || diff < DEAD_BAND) begin
                     // Go Straight (Stable or Safety)
-                    dt_cycle_right = BASE_SPEED;
+                    dt_cycle_right = BASE_SPEED + RIGHT_MOTOR_TRIM;
                     dt_cycle_left  = BASE_SPEED;
               end
               else if (dR < dL) begin
