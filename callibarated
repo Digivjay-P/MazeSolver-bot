@@ -107,7 +107,7 @@ module Test1(
     // -----------------------------------------------------------
     localparam DEAD_BAND = 16'd30;   //3cm
     localparam BASE_SPEED = 4'd10; 
-    localparam TURN_ADJUST = 4'd1; 
+    localparam TURN_ADJUST = 4'd2; 
 	 
 	 //when front US shows bw 11 and 13 cm checking turn 
 	 localparam front_US_turn_dim_up = 16'd200; 
@@ -137,12 +137,9 @@ module Test1(
 	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
 	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
-	localparam turn_R= 1175;
-	localparam turn_L = 1375;
-	localparam turn_after_forward = 1000;
-
-	 
-reg zero_flag;
+	localparam turn_R= 1167;
+	localparam turn_L = 1477;
+	localparam turn_after_forward = 900;
 	 
 	 always @(posedge clk_50M or negedge reset) begin
 		if(!reset) begin
@@ -156,8 +153,6 @@ reg zero_flag;
                 state_timer <= state_timer - 1;
             end
 				else begin
-					//Timer expired begin to make changes
-                zero_flag <= 1'b0;
 					case(state)
 						S_BOOT : begin 
 							state <=S_FOLLOW;
