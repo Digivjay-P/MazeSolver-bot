@@ -158,21 +158,21 @@ module Test1(
 							state <=S_FOLLOW;
 						end
 						S_FOLLOW : begin
-							if(dF < front_US_turn_dim_up && dF>2) begin
-								state <= S_FORWARD_BEFORE;
 								//state_timer <= 00 ;
-								if ((!obst_l && obst_r)) 
+								if ((!obst_l && obst_r)) begin
                                 turn_left_mem <= 2'd1; // Turn Left
-                           else if((obst_l && !obst_r) || (!obst_l && !obst_r))
+										  state <= S_FORWARD_BEFORE; end
+                           else if((obst_l && !obst_r) || (!obst_l && !obst_r)) begin
                                 turn_left_mem <= 2'd0; // Turn Right
-									else turn_left_mem <= 2'd2;  //U-TURN 
-						       end
-								 
+										  state <= S_FORWARD_BEFORE; end
+									else if ((dF < front_US_turn_dim_up) && obst_r && obst_l )begin 
+									turn_left_mem <= 2'd2;  //U-TURN 
+									state <= S_TURN; end
+									else state <= S_FOLLOW; 
 				         end
 						S_FORWARD_BEFORE :begin
                                 if(obst_f ) begin
 								state <= S_STOP_BEFORE;
-								zero_flag <= 1'b1;	
 								state_timer <= STOP_TIME_DELAY;
                                 end
                                 else 
@@ -186,7 +186,6 @@ module Test1(
 							R_ref <= encoder_counter_R_current;
 						end
 						S_TURN : begin
-						    zero_flag <=1'b0;
 							// Turn is done, now force move forward
                             if(turn_left_mem == 2'd1) begin    //left turn
                                 if(L_diff > turn_L) begin
