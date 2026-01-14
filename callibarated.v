@@ -265,7 +265,7 @@ end
                 end else state <= S_TURN;
 
             end else begin // U-Turn
-                if (R_diff > ((2*turn_R) + 20)) begin
+				if (R_diff > ((2*turn_R) + 40)) begin
                     state <= S_STOP;
                     state_timer <= STOP_TIME_DELAY;
                     prev_state <= S_TURN;
