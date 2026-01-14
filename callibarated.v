@@ -6,10 +6,8 @@ module Test1(
     input EN_A_L, EN_A_R,
     input EN_B_L, EN_B_R,
     input echo1, echo2, echo3,
-	 output reg LED, LEDS1, LEDS2, LEDS3,
     output wire trig1, trig2, trig3,
     output op1, op2, op3, // Debug LEDs
-    
     output wire ENA, ENB,       // PWM Enable (Speed)
     output reg IN1, IN2, IN3, IN4  // Motor Direction
 );
@@ -23,9 +21,9 @@ module Test1(
 	 wire [19:0] L_diff, R_diff, move_diff; 
 	 encoder enc_R(.clk_50M(clk_50M), .reset(reset), .en1(EN_A_R), .en2(EN_B_R), .counter(encoder_counter_R_current));
     encoder enc_L(.clk_50M(clk_50M), .reset(reset), .en1(EN_A_L), .en2(EN_B_L), .counter(encoder_counter_L_current));
-	 assign L_diff = (L_ref > encoder_counter_L_current) ? L_ref - encoder_counter_L_current : 20'b0;
-	 assign R_diff = (encoder_counter_R_current > R_ref) ? encoder_counter_R_current - R_ref : 20'b0;
-	 assign move_diff = encoder_counter_L_current - L_ref; //move_diff using left should be positive when bot moves straight
+	 assign L_diff = (L_ref > encoder_counter_L_current) ? L_ref - encoder_counter_L_current : encoder_counter_L_current - L_ref;
+	 assign R_diff = (encoder_counter_R_current > R_ref) ? encoder_counter_R_current - R_ref : R_ref - encoder_counter_R_current;
+	 assign move_diff = (L_ref > encoder_counter_L_current) ? L_ref - encoder_counter_L_current : encoder_counter_L_current - L_ref; //move_diff using left should be positive when bot moves straight
 
     
     // Ultrasonic Module
@@ -37,16 +35,30 @@ module Test1(
         .distance3(dL),
         .op1(op1), .op2(op2), .op3(op3)
     );
-    
-    parameter AVERAGE_DISTANCE = 200;
     wire obst_f, obst_r, obst_l; 
     wire clk_3125KHz;
-    
+	 (* keep *)    reg [3:0] dt_cycle_left, dt_cycle_right;
+
+	 
+	 
+    localparam AVERAGE_DISTANCE = 200;
+	 
+	     localparam LOCKOUT_TIME = 32'd80_000_000; // 1.5 Seconds
+
+		  
+     // ===========================================================
+    // -----------------------------------------------------------
+    //  TUNING PARAMETERS
+    // -----------------------------------------------------------
+    localparam DEAD_BAND = 16'd30;   //3cm
+    localparam BASE_SPEED = 4'd10; 
+    localparam TURN_ADJUST = 4'd2; 
+	 parameter RIGHT_MOTOR_TRIM = 1; // Add extra power to Right motor
+	 localparam front_US_turn_dim_up = 16'd100;  //10cm 
     // 3. GENERATORS & SENSORS
     frequency_scaling s1( .clk_50M(clk_50M), .clk_3125KHz(clk_3125KHz));
 
     // Changed to reg as required for procedural assignment
-(* keep *)    reg [3:0] dt_cycle_left, dt_cycle_right;
 
     pwm_generator right(.clk_3125KHz(clk_3125KHz), .duty_cycle(dt_cycle_right), .pwm_signal(ENA));
     pwm_generator left(.clk_3125KHz(clk_3125KHz), .duty_cycle(dt_cycle_left), .pwm_signal(ENB));
@@ -58,349 +70,351 @@ module Test1(
 	 ir i_right (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_R), .op(obst_r));
 
 
-
-    // ===========================================================
-    //  ROBUST TURN COUNTER (With Cooldown/Debounce)
-    // ===========================================================
-    reg [7:0] turn_count;      // Stores the number of turns
-    reg obst_prev;             // To store previous state
-    reg [31:0] cooldown_timer; // Timer to ignore noise after a turn
-
-    // CONFIGURATION: Cooldown Time
-    // 50,000,000 cycles = 1 second. 
-    // Adjust this based on how long your robot takes to turn.
-    // If it double counts, INCREASE this. If it misses the next wall, DECREASE this.
-    localparam LOCKOUT_TIME = 32'd80_000_000; // 1.5 Seconds
-
-    always @(posedge clk_50M or negedge reset) begin
-        if (reset == 0) begin
-            turn_count <= 0;
-            obst_prev <= 0;
-            cooldown_timer <= 0;
-        end else begin
-            
-            // 1. If the timer is running, just count down and IGNORE sensors
-            if (cooldown_timer > 0) begin
-                cooldown_timer <= cooldown_timer - 1;
-                // We do NOT update obst_prev here to prevent edge glitches
-            end 
-            
-            // 2. If timer is 0, we are ready to detect a new turn
-            else begin
-                // Detect Rising Edge (0 -> 1)
-                if (obst_f== 1'b1 && obst_prev == 1'b0) begin
-                    turn_count <= turn_count + 1;
-                    
-                    // START THE COOLDOWN TIMER
-                    // The counter will now be "frozen" for 1.5 seconds
-                    cooldown_timer <= LOCKOUT_TIME; 
-                end
-                
-                // Update previous state
-                obst_prev <= obst_f; 
-            end
-        end
-    end
-    // ===========================================================
-    // -----------------------------------------------------------
-    //  TUNING PARAMETERS
-    // -----------------------------------------------------------
-    localparam DEAD_BAND = 16'd30;   //3cm
-    localparam BASE_SPEED = 4'd10; 
-    localparam TURN_ADJUST = 4'd5; 
-	 parameter RIGHT_MOTOR_TRIM = 1; // Add extra power to Right motor
-	 
-	 localparam front_US_turn_dim_up = 16'd200; 
-	 // localparam front_US_turn_dim_down = 16'd110; 
+    
 
     reg [15:0] diff;
 	
 //  NEW: STATE MACHINE DEFINITIONS
     // ===========================================================
-    localparam S_FOLLOW  = 3'd0; // Normal Wall Following
-    localparam S_TURN   = 3'd1; // Turning in place (90 degrees)
-    localparam S_FORWARD_BEFORE= 3'd2; // Blind forward move after turn
-	 localparam S_FORWARD_AFTER= 3'd3;
-	 localparam S_STOP_BEFORE= 3'd4;
-	 localparam S_STOP_AFTER = 3'd5;
-	 localparam S_BOOT = 3'd6;  //boot time
-	 localparam S_HARDCODE = 3'd7;
+	 localparam S_BOOT = 3'd0;  //boot time
+    localparam S_FOLLOW  = 3'd1; // Normal Wall Following
+    localparam S_TURN   = 3'd2; // Turning in place (90 degrees)
+    localparam S_FORWARD_BEFORE = 3'd3;
+	 localparam S_FORWARD_AFTER = 3'd4;
+	 localparam S_STOP = 3'd5;
+	 localparam S_FILLER = 3'd6;
 	 
 (* keep *)	 reg [2:0] state;          // Current State
+reg [2:0] prev_state;
 				 reg  [1:0] turn_left_mem;  // 1 = Left, 0 = Right 2= U_turn; (Remembers direction)
 				 reg [31:0] state_timer;   // General purpose timer for states
 
     // TIMING CONSTANTS (Based on 50MHz Clock)
     // 0.5 Seconds = 25,000,000 cycles
     // Adjust TURN_TIME_DELAY to get exactly 90 degrees rotation
-    localparam FORWARD_TIMEOUT = 32'd27_500_000;   // 0.5 second
 	 localparam STOP_TIME_DELAY = 32'd25_000_000;  //0.5 seconds
 	 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     //localparam FORWARD_TIME_DELAY_AFTER= 32'd37_500_000; // 0.75 (Fixed delay)
 	// localparam FORWARD_TIME_DELAY_BEFORE= 32'd25_000_000; // .5s (Fixed delay)
-	localparam turn_R= 1175;
-	localparam turn_L = 1585;  //earlier 1577
-	localparam turn_after_forward = 1000;
-	 
-	 always @(posedge clk_50M or negedge reset) begin
-		if(!reset) begin
-			state <= S_BOOT;
-			state_timer <= BOOT_TIME_DELAY;
-         turn_left_mem <= 0;
-		end
-		else begin
-			// --- STATE MACHINE TRANSITIONS ---
-            if (state_timer > 0) begin
-                state_timer <= state_timer - 1;
+	localparam turn_R= 1372;
+	localparam turn_L = 1874;  //earlier 1700
+	localparam turn_FB = 2550;
+	localparam turn_FA = 2900;
+always @(posedge clk_50M or negedge reset) begin
+    if(!reset) begin
+        state <= S_BOOT;
+        state_timer <= BOOT_TIME_DELAY;
+        turn_left_mem <= 0;
+    end else begin
+
+        // Count down timer
+        if (state_timer > 0)
+            state_timer <= state_timer - 1;
+
+        case(state)
+
+        // ---------------------------------------------
+        // BOOT
+        // ---------------------------------------------
+        S_BOOT: begin
+            if (state_timer == 0) begin
+                state <= S_FOLLOW;
+                prev_state <= S_BOOT;
+            end else begin
+                state <= S_BOOT;
             end
-				case(state)
-					S_BOOT : begin 
-						if(state_timer == 0) state <= S_FOLLOW;  //when the time expired change state
-						else state <= S_BOOT;   //stay in boot
-						end
-					S_FOLLOW : begin  
-								//state_timer <= 00 ;								
-							if ((!obst_l && obst_r) && !(turn_count >= 3 && turn_count < 5) && !(turn_count <= 7 && turn_count >9)) begin   //obstacle in right 
-                          turn_left_mem <= 2'd1; // Turn Left  
-								  state <= S_FORWARD_BEFORE; 
-								  state_timer <= FORWARD_TIMEOUT;
-								end
-							else if((obst_l && !obst_r) && (turn_count >= 3)) begin  //obstacle in left 
-                                turn_left_mem <= 2'd0; // Turn Right
-										  state <= S_FORWARD_BEFORE;
-										  state_timer <= FORWARD_TIMEOUT;
-										  end
-							else if (!obst_l && !obst_r )begin       //junction
-										if(turn_count >= 8 && turn_count < 10) begin   //turn right 
-											turn_left_mem <= 2'd0;
-											state <= S_FORWARD_BEFORE;
-											state_timer <= FORWARD_TIMEOUT; 
-										end
-										else begin
-										  turn_left_mem <= 2'd1; // Turn Left  
-										  state <= S_FORWARD_BEFORE; 
-										  state_timer <= FORWARD_TIMEOUT;
-										end
-									end
-							 else if (obst_f && obst_r && obst_l  && (turn_count > 6))begin   //both side obstacle and forward distance less than threshold
-									turn_left_mem <= 2'd2;  //U-TURN 
-									state <= S_STOP_BEFORE; 
-									state_timer <= STOP_TIME_DELAY; end
-							 else state <= S_FOLLOW; 
-						end
-						S_FORWARD_BEFORE :begin
-                         if(obst_f) begin
-									state <= S_STOP_BEFORE;
-									state_timer <= STOP_TIME_DELAY;
-								 end
-								 else if(state_timer == 0 && (turn_count > 4))begin
-									state <= S_STOP_BEFORE;
-									state_timer <= STOP_TIME_DELAY;
-								 end
-								 else state <= S_FORWARD_BEFORE;
-						end
-						S_STOP_BEFORE: begin
-							if(state_timer == 0) begin state <= S_TURN;
-							state_timer <= 0;
-							L_ref <= encoder_counter_L_current;
-							R_ref <= encoder_counter_R_current;
-							end
-							else state <= S_STOP_BEFORE;
-						end
-						S_TURN : begin
-							// Turn is done, now force move forward
-                            if(turn_left_mem == 2'd1) begin    //left turn
-                                if(L_diff > turn_L) begin
-                                    state <= S_STOP_AFTER;
-                                    state_timer <= STOP_TIME_DELAY;
-                                end
-                                else state <= S_TURN;
-                            end
-                            else if(turn_left_mem == 2'd0) begin //right right
-                                if(R_diff > turn_R)begin
-                                    state <= S_STOP_AFTER;
-                                     state_timer <= STOP_TIME_DELAY;
-                                end
-                                else state <= S_TURN;
-                            end
-                            else begin         //U turn from right
-                                if(R_diff > (2 * turn_R))begin
-                                        state <= S_STOP_AFTER;
-                                        state_timer <= STOP_TIME_DELAY;
-                                end
-                                else state <= S_TURN;
-                            end
-						end
-						S_STOP_AFTER : begin
-						if(state_timer == 0)begin
-							state <= S_FORWARD_AFTER;
-							L_ref <= encoder_counter_L_current;
-							state_timer <= 0;	
-							end
-						else state <= S_STOP_AFTER;
-						end
-						
-						S_FORWARD_AFTER: begin
-							// Forward burst done, resume wall following
-                            if(move_diff > turn_after_forward) 
-							      state <= S_FOLLOW;
-                            else begin
-									state <= S_FORWARD_AFTER;
-								end
-							
-						end
-				endcase
-		  end
-	 end
-    // MOTOR LOGIC
-    always @(*) begin
-        // Default Motor Direction (Forward)
-        IN1 = 1; IN2 = 0; 
+        end
+
+        // ---------------------------------------------
+        // FOLLOW
+        // ---------------------------------------------
+        S_FOLLOW: begin
+            state_timer <= 0;
+
+            if(!obst_f && obst_r && obst_l) begin
+                state <= S_FOLLOW;
+            end else begin
+
+                if ((!obst_l && obst_r) && dL > 250) begin   //left turn
+                    turn_left_mem <= 2'd1;
+                    state <= S_FORWARD_BEFORE;
+                    prev_state <= S_FOLLOW;
+                    L_ref <= encoder_counter_L_current;
+                    R_ref <= encoder_counter_R_current;
+
+                end else if ((obst_l && !obst_r) && dR > 250) begin  //right turn
+                    turn_left_mem <= 2'd0;
+                    state <= S_FORWARD_BEFORE;
+                    prev_state <= S_FOLLOW;
+                    L_ref <= encoder_counter_L_current;
+                    R_ref <= encoder_counter_R_current;
+
+                end else if (!obst_l && !obst_r) begin  //junction
+                    turn_left_mem <= 2'd1;  //left priority
+                    state <= S_FORWARD_BEFORE;
+                    prev_state <= S_FOLLOW;
+                    L_ref <= encoder_counter_L_current;
+                    R_ref <= encoder_counter_R_current;
+
+                end else if (obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // uturn
+                    turn_left_mem <= 2'd2;
+                    state <= S_TURN;
+                    prev_state <= S_FOLLOW;
+                    state_timer <= STOP_TIME_DELAY;
+						  L_ref <= encoder_counter_L_current;
+						  R_ref <= encoder_counter_R_current;
+                end
+
+            end
+        end
+
+        // ---------------------------------------------
+        // FORWARD_BEFORE
+        // ---------------------------------------------
+        S_FORWARD_BEFORE: begin
+            if ((R_diff > turn_FB) ) begin  //how much should the bot go forward
+                state <= S_STOP;
+                prev_state <= S_FORWARD_BEFORE;
+                state_timer <= STOP_TIME_DELAY;
+            end else begin
+                state <= S_FORWARD_BEFORE;
+            end
+        end
+
+// ---------------------------------------------
+// STOP
+// ---------------------------------------------
+S_STOP: begin
+    if(state_timer == 0) begin
+
+        // Coming from FORWARD_BEFORE → go TURN
+        if (prev_state == S_FORWARD_BEFORE) begin
+            state <= S_TURN;
+            prev_state <= S_STOP;
+            state_timer <= 0;
+            L_ref <= encoder_counter_L_current;
+            R_ref <= encoder_counter_R_current;
+        end
+
+        // Coming from TURN → go FORWARD_AFTER
+        else if (prev_state == S_TURN) begin
+            state <= S_FORWARD_AFTER;
+            prev_state <= S_STOP;
+            state_timer <= 32'd15_000_000;
+        end
+
+        // Coming from FORWARD_AFTER
+        else if (prev_state == S_FORWARD_AFTER) begin
+
+            // If front blocked → turn again
+            if (obst_f) begin
+                state <= S_TURN;
+                prev_state <= S_STOP;
+                state_timer <= 0;
+                L_ref <= encoder_counter_L_current;
+                R_ref <= encoder_counter_R_current;
+            end
+
+            // If left AND right walls → FOLLOW
+            else if (obst_l && obst_r) begin
+                state <= S_FOLLOW;
+                prev_state <= S_STOP;
+                state_timer <= 0;
+                L_ref <= encoder_counter_L_current;
+                R_ref <= encoder_counter_R_current;
+            end
+
+            // Else → continue forward (FILLER)
+            else begin
+                state <= S_FILLER;
+                prev_state <= S_STOP;
+                state_timer <= 0;
+                L_ref <= encoder_counter_L_current;
+                R_ref <= encoder_counter_R_current;
+            end
+        end
+
+        // Fallback stay
+        else begin
+            state <= S_STOP;
+        end
+
+    end else begin
+        state <= S_STOP;
+    end
+end
+
+       
+        // ---------------------------------------------
+        // TURN
+        // ---------------------------------------------
+        S_TURN: begin
+
+            if (turn_left_mem == 2'd1) begin
+                if (L_diff > turn_L) begin
+                    state <= S_STOP;
+                    state_timer <= STOP_TIME_DELAY;
+                    prev_state <= S_TURN;
+                end else state <= S_TURN;
+
+            end else if (turn_left_mem == 2'd0) begin
+                if (R_diff > turn_R) begin
+                    state <= S_STOP;
+                    state_timer <= STOP_TIME_DELAY;
+                    prev_state <= S_TURN;
+                end else state <= S_TURN;
+
+            end else begin // U-Turn
+                if (R_diff > ((2*turn_R) + 20)) begin
+                    state <= S_STOP;
+                    state_timer <= STOP_TIME_DELAY;
+                    prev_state <= S_TURN;
+                end else state <= S_TURN;
+            end
+        end
+
+        // ---------------------------------------------
+        // FILLER
+        // ---------------------------------------------
+      S_FILLER: begin
+    
+    // If front blocked → choose turn direction
+    if (dF < 140) begin
+        
+        // Check for actual side walls first
+        if (obst_l && !obst_r) begin
+            // Left wall present, right side open → turn RIGHT
+            turn_left_mem <= 2'd0;
+        end
+        else if (!obst_l && obst_r) begin
+            // Right wall present, left open → turn LEFT
+            turn_left_mem <= 2'd1;
+        end
+        else if (!obst_l && !obst_r) begin
+            // Both sides open → default to left turn
+            turn_left_mem <= 2'd1;
+        end
+        else begin
+            // Rare case: both walls detected + front blocked → U-turn
+            turn_left_mem <= 2'd2;
+        end
+
+        // perform the turn
+        state <= S_TURN;
+        prev_state <= S_FILLER;
+        L_ref <= encoder_counter_L_current;
+        R_ref <= encoder_counter_R_current;
+    end
+    
+    // If both walls detected → resume FOLLOW
+    else if (obst_l && obst_r) begin
+        state <= S_FOLLOW;
+        prev_state <= S_FILLER;
+        L_ref <= encoder_counter_L_current;
+        R_ref <= encoder_counter_R_current;
+    end
+    
+    // No obstacle, no walls → keep moving straight
+    else begin
+        state <= S_FILLER;
+    end
+
+end
+
+
+        // ---------------------------------------------
+        // FORWARD_AFTER
+        // ---------------------------------------------
+        S_FORWARD_AFTER: begin
+            if ((L_diff > turn_FA) ) begin
+                state <= S_STOP;
+                prev_state <= S_FORWARD_AFTER;
+                state_timer <= STOP_TIME_DELAY;
+            end else begin
+                state <= S_FORWARD_AFTER;
+            end
+        end
+
+        endcase
+    end
+end
+
+
+// =====================================================
+// MOTOR LOGIC ALWAYS BLOCK
+// =====================================================
+always @(*) begin
+    
+    // Default forward
+    IN1 = 1; IN2 = 0;
+    IN3 = 1; IN4 = 0;
+
+    if (dL > dR && dR > 0)
+        diff = dL - dR;
+    else
+        diff = dR - dL;
+
+    case(state)
+
+    S_BOOT: begin
+        IN1 = 1; IN2 = 1;
+        IN3 = 1; IN4 = 1;
+        dt_cycle_left = 0;
+        dt_cycle_right = 0;
+    end
+
+    S_STOP: begin
+        IN1 = 1; IN2 = 1;
+        IN3 = 1; IN4 = 1;
+        dt_cycle_left = 0;
+        dt_cycle_right = 0;
+    end
+
+    S_TURN: begin
+        if(turn_left_mem == 2'd1) begin
+            IN1 = 1; IN2 = 0;
+            IN3 = 0; IN4 = 1;
+        end else if(turn_left_mem == 2'd0) begin
+            IN1 = 0; IN2 = 1;
+            IN3 = 1; IN4 = 0;
+        end else begin
+            IN1 = 1; IN2 = 0;
+            IN3 = 0; IN4 = 1;
+        end
+
+        dt_cycle_left = 7;
+        dt_cycle_right = 7;
+    end
+
+    S_FORWARD_BEFORE: begin
+        IN1 = 1; IN2 = 0;
+        IN3 = 1; IN4 = 0;
+        dt_cycle_left = BASE_SPEED;
+        dt_cycle_right = BASE_SPEED;
+    end
+
+    S_FOLLOW: begin
+        IN1 = 1; IN2 = 0;
         IN3 = 1; IN4 = 0;
 
+        dt_cycle_right = (dR < 185) ? (15 - dR*15/AVERAGE_DISTANCE) : 8;
+        dt_cycle_left  = (dL < 185) ? (15 - dL*15/AVERAGE_DISTANCE) : 8;
+    end
 
-        // Calculate Difference
-        if (dL > dR && dR > 0) begin 
-		  diff = dL - dR;
-		  end
-        else         diff = dR - dL;
-		  
-	case(state)
-		S_BOOT: begin
-		IN1 = 1; IN2 = 1;
-		IN3 = 1; IN4 = 1;
-		dt_cycle_right = 0;
-      dt_cycle_left = 0;
-		end
-		S_STOP_BEFORE :begin   //motor brake
-		IN1 = 1; IN2 = 1;
-		IN3 = 1; IN4 = 1;
-		dt_cycle_right = 0;
-      dt_cycle_left = 0;
-		end
-		S_STOP_AFTER :begin   //motor brake
-		IN1 = 1; IN2 = 1;
-		IN3 = 1; IN4 = 1;
-		dt_cycle_right = 0;
-      dt_cycle_left = 0;
-		end
-		S_TURN : begin
-			if(turn_left_mem == 2'd1) begin     
-			//take a left turn on the spot
-			IN1 = 1; IN2 = 0; 
-            IN3 = 0; IN4 = 1;
-				// Speed for turning
-            dt_cycle_right = 7;
-            dt_cycle_left = 7;
-			end
-			else if( turn_left_mem == 2'd0) begin              //take a right turn on the spot 
-			IN1 = 0; IN2 = 1; 
-            IN3 = 1; IN4 = 0; 
-            
-            // Speed for turning
-            dt_cycle_right = 7;
-            dt_cycle_left = 7;
-		end
-			else begin
-			IN1 = 1; IN2 = 0;
-			IN3 = 0; IN4 = 1;
-			dt_cycle_right = 7;
-			dt_cycle_left  = 7;
-			
-			
-			end
-	  end
-		S_FORWARD_BEFORE: begin   //go straight
-			IN1 = 1; IN2 = 0; // Right Forward
-         IN3 = 1; IN4 = 0; // Left Forward
-			
-			dt_cycle_right = BASE_SPEED + RIGHT_MOTOR_TRIM;
-         dt_cycle_left = BASE_SPEED;
-		end
-		S_FORWARD_AFTER: begin   //go straight
-			IN1 = 1; IN2 = 0; // Right Forward
-         IN3 = 1; IN4 = 0; // Left Forward
-			
-			dt_cycle_right = BASE_SPEED + RIGHT_MOTOR_TRIM;
-         dt_cycle_left = BASE_SPEED;
-		end
-		S_FOLLOW : begin
-				  IN1 = 1; IN2 = 0; // Right Forward
-              IN3 = 1; IN4 = 0; // Left Forward
-                
-              if (dL < 10 || dR < 10 || diff < DEAD_BAND) begin
-                    // Go Straight (Stable or Safety)
-                    dt_cycle_right = BASE_SPEED + RIGHT_MOTOR_TRIM;
-                    dt_cycle_left  = BASE_SPEED;
-              end
-              else if (dR < dL) begin
-                    // Too Close to Right -> Turn Left Gently
-                    dt_cycle_right = BASE_SPEED + TURN_ADJUST;
-                    dt_cycle_left  = BASE_SPEED - TURN_ADJUST; 
-              end
-              else begin
-                    // Too Close to Left -> Turn Right Gently
-                    dt_cycle_right = BASE_SPEED - TURN_ADJUST;
-                    dt_cycle_left  = BASE_SPEED + TURN_ADJUST;
-              end
-			end
-	endcase
-	if( turn_count == 4) begin 
-	LED <= 1'b1;
-	end 
-	if (state == 0) 
-	LEDS1 <= 1;
-	
-   if ( state == 1)
-	LEDS2 <= 1;
-   if (state == 2)
-	LEDS3 <= 1;
+    S_FORWARD_AFTER: begin
+        IN1 = 1; IN2 = 0;
+        IN3 = 1; IN4 = 0;
+        dt_cycle_left  = BASE_SPEED;
+        dt_cycle_right = BASE_SPEED;
+    end
+
+    S_FILLER: begin
+        IN1 = 1; IN2 = 0;
+        IN3 = 1; IN4 = 0;
+        dt_cycle_left  = BASE_SPEED;
+        dt_cycle_right = BASE_SPEED;
+    end
+
+    endcase
 end
-		  
-      /* if( dF < front_US_turn_dim_up) begin
-			if( dL > dR )begin   //left distance more than right thus turn left
-				IN1 = 1; IN2 = 0; 
-            IN3 = 0; IN4 = 1;
-				// Speed for turning
-            dt_cycle_right = 7;
-            dt_cycle_left = 7;
-			end
-			else begin //turn right (spot turn)
-            IN1 = 0; IN2 = 1; 
-            IN3 = 1; IN4 = 0; 
-            
-            // Speed for turning
-            dt_cycle_right = 7;
-            dt_cycle_left = 7;
-			end
-		 end
-		 
-		 else begin  // Keep Wall Following 
-
-				  IN1 = 1; IN2 = 0; // Right Forward
-              IN3 = 1; IN4 = 0; // Left Forward
-                
-              if (dL < 10 || dR < 10 || diff < DEAD_BAND) begin
-                    // Go Straight (Stable or Safety)
-                    dt_cycle_right = BASE_SPEED;
-                    dt_cycle_left  = BASE_SPEED;
-              end
-              else if (dR < dL) begin
-                    // Too Close to Right -> Turn Left Gently
-                    dt_cycle_right = BASE_SPEED + TURN_ADJUST;
-                    dt_cycle_left  = BASE_SPEED - TURN_ADJUST; 
-              end
-              else begin
-                    // Too Close to Left -> Turn Right Gently
-                    dt_cycle_right = BASE_SPEED - TURN_ADJUST;
-                    dt_cycle_left  = BASE_SPEED + TURN_ADJUST;
-              end
-           end	
-			
-						 	 
-			if( turn_count == 4) LED <= 1'b1;
-		 end */
-		 
-		
-
-endmodule
+endmodule 
