@@ -87,11 +87,11 @@ localparam STOP_TIME_DELAY = 32'd25_000_000;  //0.5 seconds
 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second
 	 
 //-------Turn paramters------------------------------
-localparam turn_R = 1455;  //encoder value needed for 90 degree right turn
-localparam turn_U = 3065;  //encoder value needed for 180 degree right turn ( uturn)
-localparam turn_L = 1595;  //encoder value needed for 90 degree left turn
+localparam turn_R = 1455;  //encoder value needed for 90 degree right turn   //tested
+localparam turn_U = 3065;  //encoder value needed for 180 degree right turn ( uturn)  //tested
+localparam turn_L = 1595;  //encoder value needed for 90 degree left turn   //almsot working
 localparam turn_FB = 2550; //How much should bot move forward in FB state
-localparam turn_FA = 2840; //How much should bot move forward in FA state
+localparam turn_FA = 2740; //How much should bot move forward in FA state
 	 
 //------------------------------------------------------
   
@@ -106,6 +106,7 @@ reg [31:0] state_timer;    // General purpose timer for states
    
 	 
 reg [15:0] turn_count;  // counts number of turn, all turns are included(left, right ,u )
+reg [15:0] u_turn_count;  //counts the number of u turns taken 
     
 //-------------------FSM---------------------
 always @(posedge clk_50M or negedge reset) begin
@@ -115,6 +116,7 @@ always @(posedge clk_50M or negedge reset) begin
       turn_left_mem <= 0;
       fa_turn_flag <= 0;
 		turn_count <=0;
+		u_turn_count <=0;
     end 
 	else begin
 	    if (state_timer > 0)
@@ -140,10 +142,10 @@ always @(posedge clk_50M or negedge reset) begin
         end 
 		else begin
 		    if ((!obst_l && obst_r)) begin   // Left turn
-			    turn_left_mem <= 2'd1;
-				state <= S_FORWARD_BEFORE;
-                prev_state <= S_FOLLOW;
-                L_ref <= encoder_counter_L_current;
+			       turn_left_mem <= 2'd1;
+				    state <= S_FORWARD_BEFORE;
+					 prev_state <= S_FOLLOW;
+					 L_ref <= encoder_counter_L_current;
                 R_ref <= encoder_counter_R_current;
             end 
             else if ((obst_l && !obst_r)) begin  // Right turn
@@ -154,8 +156,8 @@ always @(posedge clk_50M or negedge reset) begin
                 R_ref <= encoder_counter_R_current;
             end 
             else if (!obst_l && !obst_r) begin     // Junction
-			    if((turn_count >=9 && turn_count < 12) || turn_count > 45) begin
-					turn_left_mem <= 2'd0;  // right priority 
+			    if(u_turn_count >=9) begin
+						  turn_left_mem <= 2'd0;  // right priority 
                     state <= S_FORWARD_BEFORE;
                     prev_state <= S_FOLLOW;
                     L_ref <= encoder_counter_L_current;
@@ -176,7 +178,8 @@ always @(posedge clk_50M or negedge reset) begin
             state_timer <= STOP_TIME_DELAY;
             L_ref <= encoder_counter_L_current;
             R_ref <= encoder_counter_R_current;
-			turn_count <= turn_count + 1;
+				turn_count <= turn_count + 1;
+				u_turn_count <= u_turn_count + 1;
             end
             end
         end
@@ -204,7 +207,7 @@ always @(posedge clk_50M or negedge reset) begin
                 fa_turn_flag <= 1'b0; // TO CLEAR THE FLAG
                 L_ref <= encoder_counter_L_current;
                 R_ref <= encoder_counter_R_current;
-				turn_count <= turn_count + 1;
+					 turn_count <= turn_count + 1;
             end
                         // Coming from TURN → go FORWARD_AFTER
             else if (prev_state == S_TURN) begin
@@ -241,7 +244,7 @@ always @(posedge clk_50M or negedge reset) begin
                 state <= S_TURN;
             end
         end else begin // U-Turn
-        if (R_diff >  turn_U) begin
+        if (R_diff > turn_U) begin
             state <= S_STOP;
             state_timer <= STOP_TIME_DELAY;
             prev_state <= S_TURN;
@@ -281,7 +284,7 @@ always @(posedge clk_50M or negedge reset) begin
                     L_ref <= encoder_counter_L_current;
                     R_ref <= encoder_counter_R_current;
 				end
-				else begin
+				else begin	 
                     turn_left_mem <= 2'd1;  // Left priority 
                     state <= S_FORWARD_BEFORE;
                     prev_state <= S_FOLLOW;
@@ -297,9 +300,10 @@ always @(posedge clk_50M or negedge reset) begin
                 fa_turn_flag <= 1'b1;
                 L_ref <= encoder_counter_L_current;
                 R_ref <= encoder_counter_R_current;
+					 u_turn_count <= u_turn_count + 1;
             end
         end 
-        else if ((L_diff > turn_FA)) begin   // No obstacle, move forward done
+        else if ((L_diff > turn_FA) && u_turn_count !=4 && u_turn_count !=6) begin   // No obstacle, move forward done
             state <= S_FOLLOW;
             state_timer <= 0;
             fa_turn_flag <= 1'b0;
