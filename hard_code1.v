@@ -87,11 +87,11 @@ localparam STOP_TIME_DELAY = 32'd25_000_000;  //0.5 seconds
 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second
 	 
 //-------Turn paramters------------------------------
-localparam turn_R = 1310;  //encoder value needed for 90 degree right turn
-localparam turn_U = 1385;  //encoder value needed for 180 degree right turn ( uturn)
-localparam turn_L = 1860;  //encoder value needed for 90 degree left turn
+localparam turn_R = 1455;  //encoder value needed for 90 degree right turn
+localparam turn_U = 3065;  //encoder value needed for 180 degree right turn ( uturn)
+localparam turn_L = 1595;  //encoder value needed for 90 degree left turn
 localparam turn_FB = 2550; //How much should bot move forward in FB state
-localparam turn_FA = 2900; //How much should bot move forward in FA state
+localparam turn_FA = 2840; //How much should bot move forward in FA state
 	 
 //------------------------------------------------------
   
@@ -241,7 +241,7 @@ always @(posedge clk_50M or negedge reset) begin
                 state <= S_TURN;
             end
         end else begin // U-Turn
-        if (R_diff > ((2*turn_U) + 75)) begin
+        if (R_diff >  turn_U) begin
             state <= S_STOP;
             state_timer <= STOP_TIME_DELAY;
             prev_state <= S_TURN;
