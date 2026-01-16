@@ -91,6 +91,8 @@ module Test1(
     localparam turn_L = 1860; 
     localparam turn_FB = 2550;
     localparam turn_FA = 2900;
+	 
+(* keep *)	 reg [15:0] turn_count;
     
     
     always @(posedge clk_50M or negedge reset) begin
@@ -99,6 +101,7 @@ module Test1(
             state_timer <= BOOT_TIME_DELAY;
             turn_left_mem <= 0;
             fa_turn_flag <= 0;
+				turn_count <=0;
         end else begin
 
             // Count down timer
@@ -141,11 +144,20 @@ module Test1(
                             L_ref <= encoder_counter_L_current;
                             R_ref <= encoder_counter_R_current;
                         end else if (!obst_l && !obst_r) begin     // Junction
+									if(turn_count >=9 && turn_count < 12) begin
+									 turn_left_mem <= 2'd0;  // right priority 
+                            state <= S_FORWARD_BEFORE;
+                            prev_state <= S_FOLLOW;
+                            L_ref <= encoder_counter_L_current;
+                            R_ref <= encoder_counter_R_current;
+									end
+									else begin
                             turn_left_mem <= 2'd1;  // Left priority 
                             state <= S_FORWARD_BEFORE;
                             prev_state <= S_FOLLOW;
                             L_ref <= encoder_counter_L_current;
                             R_ref <= encoder_counter_R_current;
+									 end
                         end else if (obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn
                             turn_left_mem <= 2'd2;
                             state <= S_TURN;
@@ -153,6 +165,7 @@ module Test1(
                             state_timer <= STOP_TIME_DELAY;
                             L_ref <= encoder_counter_L_current;
                             R_ref <= encoder_counter_R_current;
+									 turn_count <= turn_count + 1;
                         end
                     end
                 end
@@ -183,6 +196,7 @@ module Test1(
                             fa_turn_flag <= 1'b0; // TO CLEAR THE FLAG
                             L_ref <= encoder_counter_L_current;
                             R_ref <= encoder_counter_R_current;
+									 turn_count <= turn_count + 1;
                         end
                         // Coming from TURN → go FORWARD_AFTER
                         else if (prev_state == S_TURN) begin
@@ -248,7 +262,24 @@ module Test1(
                             fa_turn_flag <= 1'b1;
                             L_ref <= encoder_counter_L_current;
                             R_ref <= encoder_counter_R_current;
-                        end else if(obst_l && obst_r) begin // U-turn
+                        end 
+								else if (!obst_l && !obst_r) begin     // Junction
+									if(turn_count >=9 && turn_count < 12) begin
+									 turn_left_mem <= 2'd0;  // right priority 
+                            state <= S_FORWARD_BEFORE;
+                            prev_state <= S_FOLLOW;
+                            L_ref <= encoder_counter_L_current;
+                            R_ref <= encoder_counter_R_current;
+									end
+									else begin
+                            turn_left_mem <= 2'd1;  // Left priority 
+                            state <= S_FORWARD_BEFORE;
+                            prev_state <= S_FOLLOW;
+                            L_ref <= encoder_counter_L_current;
+                            R_ref <= encoder_counter_R_current;
+									 end
+                        end
+								else if(obst_l && obst_r) begin // U-turn
                             turn_left_mem <= 2'd2;
                             state <= S_STOP;
                             prev_state <= S_FORWARD_AFTER;
@@ -342,7 +373,7 @@ module Test1(
 
             S_FILLER: begin
                 IN1 = 1; IN2 = 0;
-                IN3 = 1; IN4 = 0;
+                IN3 = 1; IN4 = 0; 
                 dt_cycle_left  = BASE_SPEED;
                 dt_cycle_right = BASE_SPEED;
             end
