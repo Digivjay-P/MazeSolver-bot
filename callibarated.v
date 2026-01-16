@@ -87,8 +87,8 @@ module Test1(
     localparam STOP_TIME_DELAY = 32'd25_000_000;  //0.5 seconds
     localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second 
     
-    localparam turn_R = 1320;
-	 localparam turn_U = 1340;
+    localparam turn_R = 1310;
+	 localparam turn_U = 1385;
     localparam turn_L = 1860; 
     localparam turn_FB = 2550;
     localparam turn_FA = 2900;
@@ -145,7 +145,7 @@ module Test1(
                             L_ref <= encoder_counter_L_current;
                             R_ref <= encoder_counter_R_current;
                         end else if (!obst_l && !obst_r) begin     // Junction
-									if((turn_count >=9 && turn_count < 12) || turn_count > 40) begin
+									if((turn_count >=9 && turn_count < 12) || turn_count > 45) begin
 									 turn_left_mem <= 2'd0;  // right priority 
                             state <= S_FORWARD_BEFORE;
                             prev_state <= S_FOLLOW;
@@ -232,7 +232,7 @@ module Test1(
                             state <= S_TURN;
                         end
                     end else begin // U-Turn
-                        if (R_diff > ((2*turn_U) + 55)) begin
+                        if (R_diff > ((2*turn_U) + 75)) begin
                             state <= S_STOP;
                             state_timer <= STOP_TIME_DELAY;
                             prev_state <= S_TURN;
@@ -265,7 +265,7 @@ module Test1(
                             R_ref <= encoder_counter_R_current;
                         end 
 								else if (!obst_l && !obst_r) begin     // Junction
-									if((turn_count >=9 && turn_count < 12) || turn_count > 40) begin
+									if((turn_count >=9 && turn_count < 12) || turn_count > 45) begin
 									 turn_left_mem <= 2'd0;  // right priority 
                             state <= S_FORWARD_BEFORE;
                             prev_state <= S_FOLLOW;
@@ -368,13 +368,6 @@ module Test1(
             S_FORWARD_AFTER: begin
                 IN1 = 1; IN2 = 0;
                 IN3 = 1; IN4 = 0;
-                dt_cycle_left  = BASE_SPEED;
-                dt_cycle_right = BASE_SPEED;
-            end
-
-            S_FILLER: begin
-                IN1 = 1; IN2 = 0;
-                IN3 = 1; IN4 = 0; 
                 dt_cycle_left  = BASE_SPEED;
                 dt_cycle_right = BASE_SPEED;
             end
