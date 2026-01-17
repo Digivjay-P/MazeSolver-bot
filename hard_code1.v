@@ -88,10 +88,10 @@ localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second
 	 
 //-------Turn paramters------------------------------
 localparam turn_R = 1455;  //encoder value needed for 90 degree right turn   //tested
-localparam turn_U = 3065;  //encoder value needed for 180 degree right turn ( uturn)  //tested
+localparam turn_U = 3095;  //encoder value needed for 180 degree right turn ( uturn)  //tested
 localparam turn_L = 1595;  //encoder value needed for 90 degree left turn   //almsot working
-localparam turn_FB = 2550; //How much should bot move forward in FB state
-localparam turn_FA = 2740; //How much should bot move forward in FA state
+localparam turn_FB = 2510; //How much should bot move forward in FB state
+localparam turn_FA = 2700; //How much should bot move forward in FA state
 	 
 //------------------------------------------------------
   
