@@ -259,13 +259,18 @@ always @(posedge clk_50M or negedge reset) begin
             end
                         // Coming from TURN → go FORWARD_AFTER
             else if (prev_state == S_TURN) begin
-				if(turn_count == 6 || turn_count == 16)begin
+				if(turn_count == 6 || turn_count == 16 && (u_turn_count != 4 || u_turn_count !=6))begin
                     state <= S_FORWARD_AFTER;
-					move_f <= 20'd380;
+						  move_f <= 20'd380;
                     prev_state <= S_STOP;  
                     L_ref <= encoder_counter_L_current;
                     R_ref <= encoder_counter_R_current;
-					end
+				end
+				else if(u_turn_count == 4  ) begin
+					state <= S_SINGLE_WALL_TRACK;
+					sswf <= 
+					
+				end
 				else begin
 					state <= S_FORWARD_AFTER;
 					move_f <= 20'd0;
