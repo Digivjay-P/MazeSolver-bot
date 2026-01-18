@@ -87,9 +87,9 @@ localparam STOP_TIME_DELAY = 32'd25_000_000;  //0.5 seconds
 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second
 	 
 //-------Turn paramters------------------------------
-localparam turn_R = 1300;  //encoder value needed for 90 degree right turn   //tested
-localparam turn_U = 2950;  //encoder value needed for 180 degree right turn ( uturn)  //tested
-localparam turn_L = 1230;  //encoder value needed for 90 degree left turn   //almsot working
+localparam turn_R = 1290;  //encoder value needed for 90 degree right turn   //tested
+localparam turn_U = 2940;  //encoder value needed for 180 degree right turn ( uturn)  //tested
+localparam turn_L = 1210;  //encoder value needed for 90 degree left turn   //almsot working
 localparam turn_FB = 500; //How much should bot move forward in FB state  //earlier 2495
 localparam turn_FA = 2640; //How much should bot move forward in FA state
 reg [19:0] move_f;   //how much more should the bot go in front in turn 6
@@ -98,7 +98,7 @@ reg [19:0] move_f;   //how much more should the bot go in front in turn 6
   
 //-----------------------------------------------
 //---------------TURN WISE WF--------------------
-localparam swf = 2750;
+localparam swf = 3000;
 reg sswf; // 1 when it should follow left wall, 0 when is should follow right wall
 reg junction; //high when junction detected
 reg [19:0] junction_f;
@@ -228,6 +228,7 @@ always @(posedge clk_50M or negedge reset) begin
 	 
 	 //---------------SINGLE WALL TRACK----------------
 	 S_SINGLE_WALL_TRACK: begin
+	 if(prev_state == S_FORWARD_BEFORE)begin
 		if((R_diff > swf) || obst_f)begin    //bot moved forward how much it should have now turn 
 			state <= S_STOP;
 			prev_state <= S_SINGLE_WALL_TRACK;
@@ -241,6 +242,21 @@ always @(posedge clk_50M or negedge reset) begin
 			else if( turn_left_mem == 2'd0) begin
 				sswf <= 1'b0;  //follow left wall 
 			end
+		end
+		end
+		else if( prev_state == S_FORWARD_AFTER)begin
+			if(obst_f)begin
+				state <= S_FOLLOW;
+			end
+			else if(obst_r && !obst_l)begin  //left turn detected dont take left turn here but change which wall to follow
+				sswf <= 1'b1;  //right wall follow
+				state <= S_SINGLE_WALL_TRACK;
+			end
+			else if(!obst_r && obst_l)begin
+				sswf <= 1'b0;
+				state <= S_SINGLE_WALL_TRACK;
+			end
+		
 		end
 	end
 
@@ -259,7 +275,7 @@ always @(posedge clk_50M or negedge reset) begin
             end
                         // Coming from TURN → go FORWARD_AFTER
             else if (prev_state == S_TURN) begin
-				if(turn_count == 6 || (u_turn_count >=1 && u_turn_count < 4) && (u_turn_count != 4 || u_turn_count !=6))begin
+				if(turn_count == 6 || (u_turn_count >=1 && u_turn_count < 6))begin
                     state <= S_FORWARD_AFTER;
 						  move_f <= 20'd550;
                     prev_state <= S_STOP;  
@@ -361,10 +377,16 @@ always @(posedge clk_50M or negedge reset) begin
 				u_turn_count <= u_turn_count + 1;
             end
         end 
-        else if ((L_diff > (turn_FA - move_f)) && u_turn_count !=4 && u_turn_count !=6) begin   // No obstacle, move forward done
+        else if (L_diff > (turn_FA - move_f)) begin   // No obstacle, move forward done
+			if(u_turn_count == 4 || u_turn_count == 6)begin
+				state <= S_SINGLE_WALL_TRACK;
+				prev_state <= S_FORWARD_AFTER;
+			end
+			else begin
             state <= S_FOLLOW;
             state_timer <= 0;
             fa_turn_flag <= 1'b0;
+			end
         end
         else begin
             state <= S_FORWARD_AFTER;
@@ -441,12 +463,12 @@ S_SINGLE_WALL_TRACK : begin
 	IN3 = 1;  IN4 = 0;
 	if(sswf == 1'b1)begin  //left turn so right wall follow
 		dt_cycle_right = (dR < 185) ? (15 - dR*15/AVERAGE_DISTANCE) : 12;
-		dummy_dL = 20'd195 - dR;
+		dummy_dL = 20'd200 - dR;
 		dt_cycle_left = (dummy_dL < 185) ? (15 - dummy_dL*15/AVERAGE_DISTANCE) : 12;
 	end
 	else begin  //right turn follow left wall
 	dt_cycle_left = (dL < 185) ? (15 - dL*15/AVERAGE_DISTANCE) : 12;
-	dummy_dR = 20'd185 - dL;
+	dummy_dR = 20'd200 - dL;
 	dt_cycle_right = (dummy_dR < 185) ? (15 - dummy_dR*15/AVERAGE_DISTANCE) : 12;
 end
 end
