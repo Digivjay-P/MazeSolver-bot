@@ -102,7 +102,6 @@ localparam swf = 2495;
 reg sswf; // 1 when it should follow left wall, 0 when is should follow right wall
 reg junction; //high when junction detected
 reg [19:0] junction_f;
-localparam BOT_WIDTH = 20'd20;
 
 reg [19:0] dummy_dL;
 reg [19:0] dummy_dR;
@@ -123,10 +122,10 @@ reg [15:0] u_turn_count;  //counts the number of u turns taken
 //-------------------FSM---------------------
 always @(posedge clk_50M or negedge reset) begin
 	if(!reset) begin
-		state <= S_BOOT;   //Wait in boot state for some time so that sensor readings get stable
-      state_timer <= BOOT_TIME_DELAY;
-      turn_left_mem <= 0;
-      fa_turn_flag <= 0;
+	    state <= S_BOOT;   //Wait in boot state for some time so that sensor readings get stable
+        state_timer <= BOOT_TIME_DELAY;
+        turn_left_mem <= 0;
+        fa_turn_flag <= 0;
 		turn_count <=0;
 		u_turn_count <=0;
 		sswf <= 0;
@@ -145,8 +144,8 @@ always @(posedge clk_50M or negedge reset) begin
         end 
 		else begin
 		    state <= S_BOOT;
-            end
         end
+    end
     // ---------------------------------------------
     //---------------FOLLOW-------------------------
     S_FOLLOW: begin
@@ -157,27 +156,27 @@ always @(posedge clk_50M or negedge reset) begin
 		else begin
 		    if ((!obst_l && obst_r)) begin   // Left turn
 					turn_left_mem <= 2'd1;
-				   state <= S_FORWARD_BEFORE;
+				    state <= S_FORWARD_BEFORE;
 					junction <= 1'b0;
 					prev_state <= S_FOLLOW;
 					L_ref <= encoder_counter_L_current;
-               R_ref <= encoder_counter_R_current;
+                    R_ref <= encoder_counter_R_current;
 					junction_f <= 0;
-				end 
+			end 
             else if ((obst_l && !obst_r)) begin  // Right turn
                 turn_left_mem <= 2'd0;
                 state <= S_FORWARD_BEFORE;
                 prev_state <= S_FOLLOW;
-					 junction <= 1'b0;
+				junction <= 1'b0;
                 L_ref <= encoder_counter_L_current;
                 R_ref <= encoder_counter_R_current;
-					 junction_f <= 0;
+				junction_f <= 0;
             end 
             else if (!obst_l && !obst_r) begin     // Junction
-				 junction <= 1'b1;
-				 junction_f <= 1995;
+				junction <= 1'b1;
+				junction_f <= 1995;
 			    if(u_turn_count >=9) begin
-						  turn_left_mem <= 2'd0;  // right priority 
+					turn_left_mem <= 2'd0;  // right priority 
                     state <= S_FORWARD_BEFORE;
                     prev_state <= S_FOLLOW;
                     L_ref <= encoder_counter_L_current;
@@ -191,34 +190,34 @@ always @(posedge clk_50M or negedge reset) begin
                     R_ref <= encoder_counter_R_current;
 				end
             end 
-        else if (obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn
-            turn_left_mem <= 2'd2;
-            state <= S_STOP;
+            else if (obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn
+                turn_left_mem <= 2'd2;
+                state <= S_STOP;
 				fa_turn_flag <= 1'b1;
-            prev_state <= S_FOLLOW;
-            state_timer <= STOP_TIME_DELAY;
-            L_ref <= encoder_counter_L_current;
-            R_ref <= encoder_counter_R_current;
+                prev_state <= S_FOLLOW;
+                state_timer <= STOP_TIME_DELAY;
+                L_ref <= encoder_counter_L_current;
+                R_ref <= encoder_counter_R_current;
 				turn_count <= turn_count + 1;
 				u_turn_count <= u_turn_count + 1;
             end
-            end
         end
+    end
 
     //-------------------FORWARD_BEFORE---------------------
     S_FORWARD_BEFORE: begin
         if (((R_diff > (turn_FB + junction_f)) || obst_f)) begin  // how much should the bot go forward
 			if(junction)begin
 				state <= S_STOP;
-            prev_state <= S_FORWARD_BEFORE;
+                prev_state <= S_FORWARD_BEFORE;
 				fa_turn_flag <= 1'b1;
-            state_timer <= STOP_TIME_DELAY;
+                state_timer <= STOP_TIME_DELAY;
 			end
 			else begin
-            state <= S_SINGLE_WALL_TRACK;
-            prev_state <= S_FORWARD_BEFORE;
+                state <= S_SINGLE_WALL_TRACK;
+                prev_state <= S_FORWARD_BEFORE;
 				fa_turn_flag <= 1'b0;
-            state_timer <= STOP_TIME_DELAY;
+                state_timer <= STOP_TIME_DELAY;
 			end
         end 
         else begin
@@ -241,8 +240,8 @@ always @(posedge clk_50M or negedge reset) begin
 			else if( turn_left_mem == 2'd0) begin
 				sswf <= 1'b0;  //follow left wall 
 			end
-		 end
 		end
+	end
 
     //-----------STOP---------------------------
     S_STOP: begin
@@ -255,24 +254,24 @@ always @(posedge clk_50M or negedge reset) begin
                 fa_turn_flag <= 1'b0; // TO CLEAR THE FLAG
                 L_ref <= encoder_counter_L_current;
                 R_ref <= encoder_counter_R_current;
-					 turn_count <= turn_count + 1;
+				turn_count <= turn_count + 1;
             end
                         // Coming from TURN → go FORWARD_AFTER
             else if (prev_state == S_TURN) begin
-					if(turn_count == 6 || turn_count == 16)begin
-                state <= S_FORWARD_AFTER;
-					 move_f <= 20'd380;
-                prev_state <= S_STOP;  
-                L_ref <= encoder_counter_L_current;
-                R_ref <= encoder_counter_R_current;
+				if(turn_count == 6 || turn_count == 16)begin
+                    state <= S_FORWARD_AFTER;
+					move_f <= 20'd380;
+                    prev_state <= S_STOP;  
+                    L_ref <= encoder_counter_L_current;
+                    R_ref <= encoder_counter_R_current;
 					end
-					else begin
-					 state <= S_FORWARD_AFTER;
-					 move_f <= 20'd0;
-                prev_state <= S_STOP;
-                L_ref <= encoder_counter_L_current;
-                R_ref <= encoder_counter_R_current;
-					end
+				else begin
+					state <= S_FORWARD_AFTER;
+					move_f <= 20'd0;
+                    prev_state <= S_STOP;
+                    L_ref <= encoder_counter_L_current;
+                    R_ref <= encoder_counter_R_current;
+				end
             end
         end 
         else begin
@@ -358,7 +357,7 @@ always @(posedge clk_50M or negedge reset) begin
                 fa_turn_flag <= 1'b1;
                 L_ref <= encoder_counter_L_current;
                 R_ref <= encoder_counter_R_current;
-					 u_turn_count <= u_turn_count + 1;
+				u_turn_count <= u_turn_count + 1;
             end
         end 
         else if ((L_diff > (turn_FA - move_f)) && u_turn_count !=4 && u_turn_count !=6) begin   // No obstacle, move forward done
@@ -441,12 +440,12 @@ S_SINGLE_WALL_TRACK : begin
 	IN3 = 1;  IN4 = 0;
 	if(sswf == 1'b1)begin  //left turn so right wall follow
 		dt_cycle_right = (dR < 185) ? (15 - dR*15/AVERAGE_DISTANCE) : 12;
-		dummy_dL = AVERAGE_DISTANCE - BOT_WIDTH - dR;
+		dummy_dL = 20'd170 - dR;
 		dt_cycle_left = (dummy_dL < 185) ? (15 - dummy_dL*15/AVERAGE_DISTANCE) : 12;
 	end
 	else begin
 	dt_cycle_left = (dL < 185) ? (15 - dL*15/AVERAGE_DISTANCE) : 12;
-	dummy_dR = AVERAGE_DISTANCE - BOT_WIDTH - dL;
+	dummy_dR = 20'd180 - dL;
 	dt_cycle_right = (dummy_dR < 185) ? (15 - dummy_dR*15/AVERAGE_DISTANCE) : 12;
 end
 end
