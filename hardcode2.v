@@ -88,7 +88,7 @@ localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second
 	 
 //-------Turn paramters------------------------------
 localparam turn_R = 1300;  //encoder value needed for 90 degree right turn   //tested
-localparam turn_U = 3040;  //encoder value needed for 180 degree right turn ( uturn)  //tested
+localparam turn_U = 2950;  //encoder value needed for 180 degree right turn ( uturn)  //tested
 localparam turn_L = 1230;  //encoder value needed for 90 degree left turn   //almsot working
 localparam turn_FB = 500; //How much should bot move forward in FB state  //earlier 2495
 localparam turn_FA = 2640; //How much should bot move forward in FA state
@@ -259,14 +259,14 @@ always @(posedge clk_50M or negedge reset) begin
             end
                         // Coming from TURN → go FORWARD_AFTER
             else if (prev_state == S_TURN) begin
-				if(turn_count == 6 || turn_count == 16 && (u_turn_count != 4 || u_turn_count !=6))begin
+				if(turn_count == 6 || (u_turn_count >=1 && u_turn_count < 4) && (u_turn_count != 4 || u_turn_count !=6))begin
                     state <= S_FORWARD_AFTER;
-						  move_f <= 20'd380;
+						  move_f <= 20'd550;
                     prev_state <= S_STOP;  
                     L_ref <= encoder_counter_L_current;
                     R_ref <= encoder_counter_R_current;
 				end
-				else begin
+				else begin 
 					state <= S_FORWARD_AFTER;
 					move_f <= 20'd0;
                     prev_state <= S_STOP;
@@ -441,7 +441,7 @@ S_SINGLE_WALL_TRACK : begin
 	IN3 = 1;  IN4 = 0;
 	if(sswf == 1'b1)begin  //left turn so right wall follow
 		dt_cycle_right = (dR < 185) ? (15 - dR*15/AVERAGE_DISTANCE) : 12;
-		dummy_dL = 20'd190 - dR;
+		dummy_dL = 20'd195 - dR;
 		dt_cycle_left = (dummy_dL < 185) ? (15 - dummy_dL*15/AVERAGE_DISTANCE) : 12;
 	end
 	else begin  //right turn follow left wall
