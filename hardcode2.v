@@ -98,7 +98,7 @@ reg [19:0] move_f;   //how much more should the bot go in front in turn 6
   
 //-----------------------------------------------
 //---------------TURN WISE WF--------------------
-localparam swf = 2650;
+localparam swf = 2750;
 reg sswf; // 1 when it should follow left wall, 0 when is should follow right wall
 reg junction; //high when junction detected
 reg [19:0] junction_f;
@@ -265,11 +265,6 @@ always @(posedge clk_50M or negedge reset) begin
                     prev_state <= S_STOP;  
                     L_ref <= encoder_counter_L_current;
                     R_ref <= encoder_counter_R_current;
-				end
-				else if(u_turn_count == 4  ) begin
-					state <= S_SINGLE_WALL_TRACK;
-					sswf <= 
-					
 				end
 				else begin
 					state <= S_FORWARD_AFTER;
