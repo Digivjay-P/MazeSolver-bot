@@ -91,14 +91,14 @@ localparam turn_R = 1300;  //encoder value needed for 90 degree right turn   //t
 localparam turn_U = 3040;  //encoder value needed for 180 degree right turn ( uturn)  //tested
 localparam turn_L = 1230;  //encoder value needed for 90 degree left turn   //almsot working
 localparam turn_FB = 500; //How much should bot move forward in FB state  //earlier 2495
-localparam turn_FA = 2685; //How much should bot move forward in FA state
+localparam turn_FA = 2640; //How much should bot move forward in FA state
 reg [19:0] move_f;   //how much more should the bot go in front in turn 6
 	 
 //------------------------------------------------------
   
 //-----------------------------------------------
 //---------------TURN WISE WF--------------------
-localparam swf = 2495;
+localparam swf = 2650;
 reg sswf; // 1 when it should follow left wall, 0 when is should follow right wall
 reg junction; //high when junction detected
 reg [19:0] junction_f;
@@ -210,13 +210,14 @@ always @(posedge clk_50M or negedge reset) begin
 			if(junction)begin
 				state <= S_STOP;
                 prev_state <= S_FORWARD_BEFORE;
-				fa_turn_flag <= 1'b1;
+					 fa_turn_flag <= 1'b1;
                 state_timer <= STOP_TIME_DELAY;
 			end
 			else begin
                 state <= S_SINGLE_WALL_TRACK;
+					 R_ref <= encoder_counter_R_current;
                 prev_state <= S_FORWARD_BEFORE;
-				fa_turn_flag <= 1'b0;
+					 fa_turn_flag <= 1'b0;
                 state_timer <= STOP_TIME_DELAY;
 			end
         end 
@@ -440,12 +441,12 @@ S_SINGLE_WALL_TRACK : begin
 	IN3 = 1;  IN4 = 0;
 	if(sswf == 1'b1)begin  //left turn so right wall follow
 		dt_cycle_right = (dR < 185) ? (15 - dR*15/AVERAGE_DISTANCE) : 12;
-		dummy_dL = 20'd170 - dR;
+		dummy_dL = 20'd190 - dR;
 		dt_cycle_left = (dummy_dL < 185) ? (15 - dummy_dL*15/AVERAGE_DISTANCE) : 12;
 	end
-	else begin
+	else begin  //right turn follow left wall
 	dt_cycle_left = (dL < 185) ? (15 - dL*15/AVERAGE_DISTANCE) : 12;
-	dummy_dR = 20'd180 - dL;
+	dummy_dR = 20'd185 - dL;
 	dt_cycle_right = (dummy_dR < 185) ? (15 - dummy_dR*15/AVERAGE_DISTANCE) : 12;
 end
 end
