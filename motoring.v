@@ -1,4 +1,4 @@
-(* DONT_TOUCH = "true"*)
+(* DONT_TOUCH = "true"   *)
 module motoring(
     input clk_50M, 
     input ir_in_F, ir_in_R, ir_in_L,
@@ -8,7 +8,8 @@ module motoring(
     input echo1, echo2, echo3,
 	 input [1:0] cmd_in,  //take left, right, u turn, detected a turn but dont take it
 	 input start_in,
-	 output done_out,
+	 output reg need_decision,
+	 output reg done_out,
 	 output reg [1:0] event_out,  //detected left turn, right turn, junction, deadend
     output wire trig1, trig2, trig3,
     output op1, op2, op3, // Debug LEDs
@@ -132,11 +133,12 @@ reg turn_flag ;
 
 
 //------------------------------------------
-always @(posedge clk)begin
+always @(posedge clk_50M)begin
 	if(!reset)begin
 		state <= S_BOOT;
 		state_timer <= STOP_TIME_DELAY;
 		sswf <= 0;
+		need_decision <=0;
 	end
 	else begin
 	if(state_timer > 0) begin
@@ -149,56 +151,70 @@ always @(posedge clk)begin
 		if(state_timer == 0)begin
 			state <= S_FOLLOW;
 			prev_state <= S_BOOT;
+			need_decision <=0;
 		end
 		else state <= S_BOOT;
 	end
 
 //----------FOLLOW-------------------
 	S_FOLLOW: begin
-        done_out = 1'b0;
+      done_out <= 1'b0;
 		state_timer <= 0;
 		if(obst_r && obst_l && !obst_f)begin
 			state <= S_FOLLOW;
+			need_decision <=0;
 		end
 		else begin          //tell the brain here what it detects 
-			if(!obst_l && obsr_r) begin  //left turn
+			if(!obst_l && obst_r) begin  //left turn
 				event_out <= 2'd0;     
 				junction_f <= 0;
+				need_decision <=1;
 			end
 			else if(obst_l && !obst_r) begin //right turn
 				event_out <= 2'd1;
 				junction_f <= 0;
+				need_decision <=1;
 			end
 			else if(!obst_l && !obst_r)begin  //junction
 				event_out <= 2'd2;
 				junction_f <= 1995;
+				need_decision <=1;
 			end
 			else if (obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn
 				event_out <= 2'd3;
 				junction_f <= 0;
+				need_decision <=1;
 			end
 			if(start_in && cmd_in != 2'd3) begin   //we have to take the turn
-                prev_state <= S_FOLLOW;
-				if(cmd_in != 2'd2) state <= S_FORWARD_BEFORE;
+            prev_state <= S_FOLLOW;
+				if(cmd_in != 2'd2)begin
+				state <= S_FORWARD_BEFORE;
+				L_ref <= encoder_counter_L_current;
+            R_ref <= encoder_counter_R_current;
+				end
 				else state <= S_STOP;
 			end
             else if(cmd_in == 2'd3)begin   //we dont want to take the turn just detected
                 prev_state <= S_FOLLOW;
                 state <= S_SINGLE_WALL_TRACK;
+					 L_ref <= encoder_counter_L_current;
+					 R_ref <= encoder_counter_R_current;
             end
 			else state <= S_FOLLOW;
 		end
 	end
 	S_FORWARD_BEFORE : begin
+		need_decision <= 0;
 		if((R_diff > (turn_FB + junction_f)) || obst_f)begin
-			if(event_out == 2'd2)begin   //if there is a junction dont follow any wall go straight to s forward state4
+			if(event_out == 2'd2)begin   //if there is a junction dont follow any wall go straight to s forward state_s
 				state <= S_STOP;
 				prev_state <= S_FORWARD_BEFORE;
 				state_timer <= STOP_TIME_DELAY;
 			end
 			else begin
-				state <= s_SINGLE_WALL_TRACK;
-				R_REF <= encoder_counter_R_current;
+				state <= S_SINGLE_WALL_TRACK;
+				L_ref <= encoder_counter_L_current;
+            R_ref <= encoder_counter_R_current;
 				prev_state <= S_FORWARD_BEFORE;
 			end
 		end
@@ -240,7 +256,7 @@ always @(posedge clk)begin
 
     S_STOP : begin
         if(state_timer == 0)begin
-            if(prev_state == S_SINGLE_WALL_TRACK) begin
+            if(prev_state == S_SINGLE_WALL_TRACK || prev_state == S_FOLLOW) begin
                 state <= S_TURN;
                 prev_state <= S_STOP;
                 state_timer <= 0;
@@ -339,7 +355,7 @@ S_TURN: begin
         IN1 = 1; IN2 = 0;
         IN3 = 0; IN4 = 1;
     end 
-    else if(turn_left_mem == 2'd1) begin  //right turn 
+    else if(cmd_in == 2'd1) begin  //right turn 
         IN1 = 0; IN2 = 1;
         IN3 = 1; IN4 = 0;
     end 
