@@ -28,7 +28,7 @@ motoring m1(
     .echo1(echo1), .echo2(echo2), .echo3(echo3),    
     .cmd_in(cmd_out), 
     .start_in(start_out),
-    .need_decision(need_decision), // NEW SIGNAL NAME
+    .need_decision(need_decision),
     .event_out(event_in), 
     .trig1(trig1), .trig2(trig2), .trig3(trig3),
     .op1(op1), .op2(op2), .op3(op3), 
