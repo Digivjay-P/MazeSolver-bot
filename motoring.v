@@ -136,7 +136,7 @@ reg turn_flag ;
 always @(posedge clk_50M)begin
 	if(!reset)begin
 		state <= S_BOOT;
-		state_timer <= STOP_TIME_DELAY;
+		state_timer <= BOOT_TIME_DELAY;
 		sswf <= 0;
 		need_decision <=0;
 	end
@@ -187,12 +187,15 @@ always @(posedge clk_50M)begin
 			end
 			if(start_in && cmd_in != 2'd3) begin   //we have to take the turn
             prev_state <= S_FOLLOW;
-				if(cmd_in != 2'd2)begin
-				state <= S_FORWARD_BEFORE;
-				L_ref <= encoder_counter_L_current;
-            R_ref <= encoder_counter_R_current;
+				if(cmd_in == 2'd2)begin  //uturn
+					state <= S_STOP;
+					state_timer <= STOP_TIME_DELAY;
 				end
-				else state <= S_STOP;
+				else begin 
+					state <= S_FORWARD_BEFORE;  // for other cases
+					L_ref <= encoder_counter_L_current;
+					R_ref <= encoder_counter_R_current;
+				end
 			end
             else if(cmd_in == 2'd3)begin   //we dont want to take the turn just detected
                 prev_state <= S_FOLLOW;
@@ -255,6 +258,7 @@ always @(posedge clk_50M)begin
     end
 
     S_STOP : begin
+		need_decision <= 0;
         if(state_timer == 0)begin
             if(prev_state == S_SINGLE_WALL_TRACK || prev_state == S_FOLLOW) begin
                 state <= S_TURN;
@@ -315,7 +319,7 @@ always @(posedge clk_50M)begin
         done_out <= 1'b1; //ready for new decision 
         state <= S_FOLLOW;
         end  
-        else if(L_diff > (turn_FA - move_f)) begin   // No obstacle, move forward done
+        else if(L_diff > (turn_FA)) begin   // No obstacle, move forward done
             done_out <= 1'b1; //ready for new decision 
             state <= S_FOLLOW;
         end
