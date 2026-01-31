@@ -45,7 +45,8 @@ DEADENDS    : 9
 reg start_out;     // Brain -> Robot: "Here is your command"
 wire need_decision; // Robot -> Brain: "I need help!"
 wire [1:0] event_in;  
-reg [1:0] cmd_out;  
+reg [1:0] cmd_out; 
+wire in_follow; //to indicate bot is in follow state 
 
 // --- Instantiate Driver ---
 motoring m1( 
@@ -62,7 +63,10 @@ motoring m1(
     .op1(op1), .op2(op2), .op3(op3), 
     .ENA(ENA), .ENB(ENB), 
     .IN1(IN1), .IN2(IN2), .IN3(IN3), .IN4(IN4),
-    .dl(dL), . df(dF), .dr(dR)
+    .dl(dL), . df(dF), .dr(dR),
+    .counter_R (encoder_counter_R_current),
+	 .in_follow(in_follow)
+    
 );
 
 
@@ -86,10 +90,16 @@ reg openL, openF, openR;           // Open paths
 reg [1:0] markL, markF, markR;     // Marker values
 //---------------------------------------------
 localparam open_distance = 400; //40cm
-
+localparam cell_threshold = 3000; //encoder value for cell change 
 
 
 //-------------------------------------------------
+reg [19:0] R_ref;
+wire [19:0] R_diff; 
+wire  [19:0] encoder_counter_R_current;     //reads encoder current value from motoring module 
+
+assign R_diff = (encoder_counter_R_current > R_ref) ? encoder_counter_R_current - R_ref : R_ref - encoder_counter_R_current;
+//- --- -  ---- ----- --------------------x-----
 
 reg [1:0] brain_state;
 localparam WAIT_FOR_REQ = 2'd0;
@@ -144,7 +154,8 @@ if(!reset)begin
     current_cell <= 7'd76;
     x            <= 8'd4;
     y            <= 8'd8;
-	idx <= 0;        
+	 idx <= 0;
+	 R_ref <= 0; 
     for (i = 0; i < 81; i = i + 1)
         for (j = 0; j < 4; j = j + 1)
         mark_mem[i][j] <= 2'b00;
@@ -152,6 +163,7 @@ end
 else begin
 case(brain_state)
 WAIT_FOR_REQ : begin
+    
     if(need_decision == 1'b1)begin
     // Get marker values for open paths
     markL = openL ? mark_mem[current_cell][absL] : 2'd3; 
@@ -196,6 +208,20 @@ WAIT_FOR_REQ : begin
         next_state = 2'b01; // left or right turn  
     else if(event_in == 2'd2)
         next_state = 2'b10; // junction
+end
+else if(in_follow == 1'b1) begin //when need help is not high bot is in s follow state
+    if(R_diff > cell_threshold) begin // update this when bot has moved to next cell
+        R_ref <= encoder_counter_R_current ;
+        current_cell <= $signed(current_cell) + delta[current_dir];
+        x <= ($signed(current_cell) + delta[current_dir]) % 9;
+        y <= ($signed(current_cell) + delta[current_dir]) / 9;
+		  if (mark_mem[current_cell][current_dir] < 2'd2) begin
+             mark_mem[current_cell][current_dir] <= mark_mem[current_cell][current_dir] + 2'd1;
+        end
+		  if (mark_mem[$signed(current_cell) + delta[current_dir]][new_dir(current_dir, relU)] < 2'd2) begin
+             mark_mem[$signed(current_cell) + delta[current_dir]][new_dir(current_dir, relU)] <= mark_mem[$signed(current_cell) + delta[current_dir]][new_dir(current_dir, relU)] + 2'd1;
+        end
+    end
 end
 end
 DECIDE : begin
@@ -290,7 +316,7 @@ SEND_CMD : begin
     // 2. Update Memory and Commit State ONCE when the robot accepts the command
     if(need_decision == 1'b0) begin
         start_out <= 1'b0; 
-        
+        R_ref <= encoder_counter_R_current;
         // --- Tremaux Memory Update ---
         // Mark the path we are taking out of the current cell
         if (mark_mem[current_cell][next_dir] < 2'd2)
@@ -319,8 +345,6 @@ end
 
 reg [7:0] x, y;
 
-
+endmodule
 
 //////////////////DO NOT MAKE ANY CHANGES BELOW THIS LINE //////////////////
-
-endmodule
