@@ -14,7 +14,13 @@ module motoring(
     output wire trig1, trig2, trig3,
     output op1, op2, op3, // Debug LEDs
     output wire ENA, ENB,       // PWM Enable (Speed)
-    output reg IN1, IN2, IN3, IN4  // Motor Direction
+    output reg IN1, IN2, IN3, IN4,  // Motor Direction
+	 output [15:0] dl,
+	 output [15:0] df,
+	 output [15:0] dr,
+	 output [19:0] counter_R,
+	 output reg in_follow
+	 
 );
 
 //---------------------------------
@@ -49,6 +55,9 @@ FOR CMD_IN :
         .distance3(dL),
         .op1(op1), .op2(op2), .op3(op3)
     );
+assign dr = dR;
+assign df = dF;
+assign dl = dL;
 	 
 //-----------------------------------
 //----------Encoder------------------
@@ -63,9 +72,10 @@ assign L_diff = (L_ref > encoder_counter_L_current) ? L_ref - encoder_counter_L_
 assign R_diff = (encoder_counter_R_current > R_ref) ? encoder_counter_R_current - R_ref : R_ref - encoder_counter_R_current;
 assign move_diff = (L_ref > encoder_counter_L_current) ? L_ref - encoder_counter_L_current : encoder_counter_L_current - L_ref; 
 
+assign counter_R = encoder_counter_R_current ;
 //-------------------------------
 //--------------IR--------------- 
-wire obst_f, obst_r, obst_l; 
+//wire obst_f, obst_r, obst_l; 
 ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_F), .op(obst_f)); //front IR
 ir i_left(.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_L), .op(obst_l));  //left IR
 ir i_right (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_R), .op(obst_r)); //right IR
@@ -103,7 +113,7 @@ localparam turn_R = 1290;  //encoder value needed for 90 degree right turn   //t
 localparam turn_U = 2940;  //encoder value needed for 180 degree right turn ( uturn)  //tested
 localparam turn_L = 1210;  //encoder value needed for 90 degree left turn   //almsot working
 localparam turn_FB = 500; //How much should bot move forward in FB state  //earlier 2495
-localparam turn_FA = 2640; //How much should bot move forward in FA state
+localparam turn_FA = 500; //How much should bot move forward in FA state
 reg [19:0] move_f; //if there is not wall in front the bot should move less in forward after 
 
 //--------------------------------------------------
@@ -118,7 +128,8 @@ localparam S_SINGLE_WALL_TRACK = 3'd6;
 
 //-----------------------------------------------
 //---------------SINGLE WF PARAMETERS--------------------
-localparam swf = 3000;
+localparam swf_before = 3000;
+localparam swf_after = 3000;
 reg sswf; // 1 when it should follow left wall, 0 when is should follow right wall
 reg junction; //high when junction detected
 reg [19:0] junction_f;
@@ -158,6 +169,7 @@ always @(posedge clk_50M)begin
 
 //----------FOLLOW-------------------
 	S_FOLLOW: begin
+		in_follow <= 1'b1;
       done_out <= 1'b0;
 		state_timer <= 0;
 		if(obst_r && obst_l && !obst_f)begin
@@ -207,6 +219,7 @@ always @(posedge clk_50M)begin
 		end
 	end
 	S_FORWARD_BEFORE : begin
+		in_follow <= 1'b0;
 		need_decision <= 0;
 		if((R_diff > (turn_FB + junction_f)) || obst_f)begin
 			if(event_out == 2'd2)begin   //if there is a junction dont follow any wall go straight to s forward state_s
@@ -217,7 +230,7 @@ always @(posedge clk_50M)begin
 			else begin
 				state <= S_SINGLE_WALL_TRACK;
 				L_ref <= encoder_counter_L_current;
-            R_ref <= encoder_counter_R_current;
+                R_ref <= encoder_counter_R_current;
 				prev_state <= S_FORWARD_BEFORE;
 			end
 		end
@@ -225,8 +238,9 @@ always @(posedge clk_50M)begin
 	end
     //-----------SINGLE WALL TRACK----------
     S_SINGLE_WALL_TRACK : begin
+		  in_follow <= 1'b0;
         if(prev_state == S_FORWARD_BEFORE)begin
-            if((R_diff > swf) || obst_f )begin
+            if((R_diff > swf_before) || obst_f )begin
                 state <= S_STOP;
                 state_timer <= STOP_TIME_DELAY;
                 prev_state <= S_SINGLE_WALL_TRACK;
@@ -242,7 +256,7 @@ always @(posedge clk_50M)begin
             end
         end
         else if(prev_state == S_FOLLOW)begin   //this condition means brain saw a turn but decided not to take it
-            if(R_diff > swf || obst_f)begin
+            if(R_diff > swf_before || obst_f)begin
                 state <= S_FOLLOW;
                 done_out <= 1'b1;
             end
@@ -255,9 +269,20 @@ always @(posedge clk_50M)begin
                 done_out <= 1'b0;
             end
         end
+        else if(prev_state == S_FORWARD_AFTER) begin
+            if((R_diff > swf_after) || obst_f)begin
+                state <= S_FOLLOW;
+                state_timer <= 0;
+            end
+            else begin
+                state <= S_SINGLE_WALL_TRACK;
+                state_timer <=0;
+            end
+        end
     end
 
     S_STOP : begin
+		in_follow <= 1'b0;
 		need_decision <= 0;
         if(state_timer == 0)begin
             if(prev_state == S_SINGLE_WALL_TRACK || prev_state == S_FOLLOW) begin
@@ -281,6 +306,7 @@ always @(posedge clk_50M)begin
 
     //-------------TURN----------------------
     S_TURN: begin
+	 in_follow <= 1'b0;
         if(cmd_in == 2'd0) begin   //left turn 
             if (L_diff > turn_L) begin
                 state <= S_STOP;
@@ -315,13 +341,17 @@ always @(posedge clk_50M)begin
 
     //-------------FORWARD AFTER TURN----------
     S_FORWARD_AFTER : begin
+	 in_follow <= 1'b0;
         if(obst_f)begin
         done_out <= 1'b1; //ready for new decision 
         state <= S_FOLLOW;
         end  
         else if(L_diff > (turn_FA)) begin   // No obstacle, move forward done
             done_out <= 1'b1; //ready for new decision 
-            state <= S_FOLLOW;
+            state <= S_SINGLE_WALL_TRACK;
+            L_ref <= encoder_counter_L_current;
+            R_ref <= encoder_counter_R_current;
+            prev_state <= S_FORWARD_AFTER;
         end
         else state <= S_FORWARD_AFTER;
     end
