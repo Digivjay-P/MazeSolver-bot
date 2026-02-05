@@ -1,0 +1,151 @@
+module transmit (
+    input clk_50M, 
+    input ir_in_F, ir_in_R, ir_in_L,
+    input reset,   
+    input rx,	 
+    input EN_A_L, EN_A_R,
+    input EN_B_L, EN_B_R,
+    input echo1, echo2, echo3,
+    output wire trig1, trig2, trig3,
+    output op1, op2, op3, 
+    output wire ENA, ENB,        
+    output wire IN1, IN2, IN3, IN4, 
+    output tx,
+	 output wire rx_complete,QD
+	 output wire [7:0] rx_msg
+);
+
+    // --- 1. Internal Signals ---
+    wire [7:0] current_cell; // Must be WIRE because 'main' drives it
+    wire clk_3125KHz;
+    wire start_flag;
+	 reg rx_parity = 1'b0;
+	 uart_rx_test urt0(.clk_50M(clk_50M), .reset(reset), .rx(rx), .rx_parity(rx_Parity), .start_flag(start_flag), .rx_msg(rx_msg), .rx_complete(rx_complete));
+    // --- 2. Module Instantiations ---
+	 reg robot_run;
+    always @(posedge clk_3125KHz or negedge reset) begin
+    if (!reset) begin
+        robot_run <= 1'b0;
+    end else if (start_flag) begin
+        robot_run <= 1'b1; // Once 'S' is received, this stays 1
+    end
+end
+    // Main Robot Logic (Driving the bot and updating current_cell)
+    Test1 m1 (
+        .clk_50M(clk_50M), 
+        .ir_in_F(ir_in_F), .ir_in_R(ir_in_R), .ir_in_L(ir_in_L), 
+        .reset(reset), 
+        .EN_A_L(EN_A_L), .EN_A_R(EN_A_R), .EN_B_L(EN_B_L), .EN_B_R(EN_B_R), 
+        .echo1(echo1), .echo2(echo2), .echo3(echo3), 
+        .trig1(trig1), .trig2(trig2), .trig3(trig3), 
+        .op1(op1), .op2(op2), .op3(op3), 
+        .ENA(ENA), .ENB(ENB),
+        .IN1(IN1), .IN2(IN2), .IN3(IN3), .IN4(IN4), 
+        .current_cell(current_cell), .robot_run(robot_run)// Outputs the cell number here
+    );
+
+    // UART Clock Generation
+    frequency_scaling fs( .clk_50M(clk_50M), .clk_3125KHz(clk_3125KHz) );
+
+    // UART Transmitter
+    reg [7:0] char_data;
+    reg tx_start;
+    wire tx_done;
+
+    uart_tx u0 (                                     
+        .clk_3125KHz(clk_3125KHz),
+        .parity_type(1'b0),
+        .tx_start(tx_start),
+        .data(char_data),
+        .tx(tx),
+        .tx_done(tx_done)
+    );
+// --- 3. Simplified Transmission Logic with New Line ---
+    
+    reg [3:0] state; // INCREASED TO 4 BITS
+    reg [7:0] last_sent_cell;
+
+    // States
+    localparam IDLE       = 4'd0;
+    localparam SEND_TENS  = 4'd1;
+    localparam WAIT_TENS  = 4'd2;
+    localparam SEND_UNITS = 4'd3;
+    localparam WAIT_UNITS = 4'd4;
+    localparam SEND_CR    = 4'd5; // New: Send Carriage Return
+    localparam WAIT_CR    = 4'd6;
+    localparam SEND_LF    = 4'd7; // New: Send Line Feed
+    localparam WAIT_LF    = 4'd8;
+
+    always @(posedge clk_3125KHz or negedge reset) begin
+        if (!reset) begin
+            state          <= IDLE;
+            tx_start       <= 1'b0;
+            char_data      <= 8'd0;
+            last_sent_cell <= 8'hFF; 
+        end else 
+		  begin
+            case (state)
+                
+                // State 0: Wait for change
+                IDLE: begin
+                    tx_start <= 0;
+                    if ( (current_cell != last_sent_cell)) begin
+                        last_sent_cell <= current_cell;
+                        state          <= SEND_TENS;
+                    end
+                end
+
+                // --- 1. Send Tens Digit ---
+                SEND_TENS: begin
+                    char_data <= (current_cell / 10) + 8'h30; 
+                    tx_start  <= 1;
+                    state     <= WAIT_TENS;
+                end
+
+                WAIT_TENS: begin
+                    tx_start <= 0;
+                    if (tx_done) state <= SEND_UNITS;
+                end
+
+                // --- 2. Send Units Digit ---
+                SEND_UNITS: begin
+                    char_data <= (current_cell % 10) + 8'h30;
+                    tx_start  <= 1;
+                    state     <= WAIT_UNITS;
+                end
+
+                WAIT_UNITS: begin
+                    tx_start <= 0;
+                    if (tx_done) state <= SEND_CR; // Go to New Line logic
+                end
+
+                // --- 3. Send Carriage Return (0x0D) ---
+                SEND_CR: begin
+                    char_data <= 8'h0D; 
+                    tx_start  <= 1;
+                    state     <= WAIT_CR;
+                end
+
+                WAIT_CR: begin
+                    tx_start <= 0;
+                    if (tx_done) state <= SEND_LF;
+                end
+
+                // --- 4. Send Line Feed (0x0A) ---
+                SEND_LF: begin
+                    char_data <= 8'h0A; 
+                    tx_start  <= 1;
+                    state     <= WAIT_LF;
+                end
+
+                WAIT_LF: begin
+                    tx_start <= 0;
+                    if (tx_done) state <= IDLE; // Done, go back to wait
+                end
+
+                default: state <= IDLE;
+            endcase
+        end
+    end
+	 
+	 endmodule
