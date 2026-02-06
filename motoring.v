@@ -15,13 +15,10 @@ module motoring(
     output op1, op2, op3, // Debug LEDs
     output wire ENA, ENB,       // PWM Enable (Speed)
     output reg IN1, IN2, IN3, IN4,  // Motor Direction
-	 output [15:0] dl,
-	 output [15:0] df,
-	 output [15:0] dr,
 	 output [19:0] counter_R,
 	 output reg in_follow,
+	 output openL, openR, openF,
 	 output reg MPI_flag
-	 
 );
 
 //---------------------------------
@@ -56,9 +53,6 @@ FOR CMD_IN :
         .distance3(dL),
         .op1(op1), .op2(op2), .op3(op3)
     );
-assign dr = dR;
-assign df = dF;
-assign dl = dL;
 	 
 //-----------------------------------
 //----------Encoder------------------
@@ -104,7 +98,6 @@ localparam TURN_SPEED = 12;
 localparam TURN_ADJUST = 4'd2; 
 localparam front_US_turn_dim_up = 16'd100;  //10cm 
 
-
 //-------TIMING CONSTANTS (Based on 50MHz Clock)-----------
 localparam STOP_TIME_DELAY = 32'd15_000_000;  //0.25 seconds	
 localparam BOOT_TIME_DELAY = 32'd100_000_000;  //2 second
@@ -143,6 +136,13 @@ reg [2:0] prev_state;		// previous state
 reg [31:0] state_timer;    // General purpose timer for states
 reg turn_flag ;
 
+localparam open_distance = 600;
+//-------------------------------------------
+
+assign openL = (dL > open_distance) ? 1'b1 : 1'b0 ;
+assign openR = (dR > open_distance) ? 1'b1 : 1'b0 ;
+assign openF = (dF > open_distance) ? 1'b1 : 1'b0 ;
+
 
 //------------------------------------------
 always @(posedge clk_50M)begin
@@ -151,6 +151,7 @@ always @(posedge clk_50M)begin
 		state_timer <= BOOT_TIME_DELAY;
 		sswf <= 0;
 		need_decision <=0;
+		MPI_flag <= 1'b0;
 	end
 	else begin
 	if(state_timer > 0) begin
@@ -211,10 +212,19 @@ always @(posedge clk_50M)begin
 					state <= S_STOP;
 					state_timer <= STOP_TIME_DELAY;
 				end
-				else begin 
-					state <= S_FORWARD_BEFORE;  // for other cases
-					L_ref <= encoder_counter_L_current;
-					R_ref <= encoder_counter_R_current;
+				else begin //right or left turn
+					if(openF) begin 
+						move_f <= 1050; //go less forward
+						state <= S_FORWARD_BEFORE;  // for other cases
+						L_ref <= encoder_counter_L_current;
+						R_ref <= encoder_counter_R_current;
+					end
+					else begin
+						move_f <= 0; //normal case 
+						state <= S_FORWARD_BEFORE;  // for other cases
+						L_ref <= encoder_counter_L_current;
+						R_ref <= encoder_counter_R_current;
+					end
 				end
 			end
             else if(cmd_in == 2'd3)begin   //we dont want to take the turn just detected
@@ -248,7 +258,7 @@ always @(posedge clk_50M)begin
     S_SINGLE_WALL_TRACK : begin
 		  in_follow <= 1'b0;
         if(prev_state == S_FORWARD_BEFORE)begin
-            if((R_diff > swf_before) || obst_f )begin
+            if((R_diff > (swf_before - move_f)) || obst_f )begin
                 state <= S_STOP;
                 state_timer <= STOP_TIME_DELAY;
                 prev_state <= S_SINGLE_WALL_TRACK;
