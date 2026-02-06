@@ -36,11 +36,7 @@ DEADENDS    : 9
 
 */
 
-//--------------------------------------
-//------- Distance----------------------
-(* keep *) wire [15:0] dL; // Left Distance
-(* keep *) wire [15:0] dF; // Front Distance
-(* keep *) wire [15:0] dR; // Right Distance
+//---------------------------------
 
 // --- Internal Signals ---
 reg start_out;     // Brain -> Robot: "Here is your command"
@@ -48,6 +44,8 @@ wire need_decision; // Robot -> Brain: "I need help!"
 wire [1:0] event_in;  
 reg [1:0] cmd_out; 
 wire in_follow; //to indicate bot is in follow state 
+
+wire openL, openR, openF;
 
 // --- Instantiate Driver ---
 motoring m1( 
@@ -64,9 +62,9 @@ motoring m1(
     .op1(op1), .op2(op2), .op3(op3), 
     .ENA(ENA), .ENB(ENB), 
     .IN1(IN1), .IN2(IN2), .IN3(IN3), .IN4(IN4),
-    .dl(dL), . df(dF), .dr(dR),
     .counter_R (encoder_counter_R_current),
-	 .in_follow(in_follow), .robot_run(robot_run)
+	 .in_follow(in_follow), .robot_run(robot_run),
+	 .openL(openL), .openR(openR), .openF(openF)
     
 );
 
@@ -87,7 +85,6 @@ reg [7:0] idx;
 
 // --- Helper regs for combinational block ---
 reg [2:0] absL, absF, absR, absU;  // Absolute directions
-reg openL, openF, openR;           // Open paths
 reg [1:0] markL, markF, markR;     // Marker values
 //---------------------------------------------
 localparam open_distance = 400; //40cm
@@ -132,9 +129,7 @@ always @(*) begin
     absR = new_dir(current_dir, relR);
     absU = new_dir(current_dir, relU);
 
-    openL = (dL > open_distance) ? 1'b1 : 1'b0 ;
-    openR = (dR > open_distance) ? 1'b1 : 1'b0 ;
-    openF = (dF > open_distance) ? 1'b1 : 1'b0 ;
+ 
 end
 
 always @(posedge clk_50M or negedge reset)begin
