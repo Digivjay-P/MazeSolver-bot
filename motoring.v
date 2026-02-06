@@ -69,9 +69,11 @@ assign move_diff = (L_ref > encoder_counter_L_current) ? L_ref - encoder_counter
 
 assign counter_R = encoder_counter_R_current ;
 //-------------------------------
+wire obst_f;
+assign obst_f = (dF < distance_f_threshold) ? 1'b1 : 1'b0 ;
 //--------------IR--------------- 
-//wire obst_f, obst_r, obst_l; 
-ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_F), .op(obst_f)); //front IR
+wire IR_MPI, obst_r, obst_l; 
+ir i_front (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_F), .op(IR_MPI)); //front IR
 ir i_left(.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_L), .op(obst_l));  //left IR
 ir i_right (.clk_50M(clk_50M), .rst_n(reset), .ir_in(ir_in_R), .op(obst_r)); //right IR
 
@@ -97,6 +99,7 @@ localparam BASE_SPEED = 4'd14;
 localparam TURN_SPEED = 12;
 localparam TURN_ADJUST = 4'd2; 
 localparam front_US_turn_dim_up = 16'd100;  //10cm 
+localparam distance_f_threshold = 70;
 
 //-------TIMING CONSTANTS (Based on 50MHz Clock)-----------
 localparam STOP_TIME_DELAY = 32'd15_000_000;  //0.25 seconds	
@@ -194,13 +197,13 @@ always @(posedge clk_50M)begin
 				junction_f <= 1995;
 				need_decision <=1;
 			end
-			else if (!obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn with detection point
+			else if (!IR_MPI && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn with detection point
 				event_out <= 2'd3;
 				junction_f <= 0;
 				need_decision <=1;
 				MPI_flag <= 1'b0;  //no need to measure just take the U - turn 
 			end
-			else if(obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin
+			else if(IR_MPI && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin
 				event_out <= 2'd3;
 				junction_f <= 0;
 				need_decision <=1;
