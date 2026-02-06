@@ -1,6 +1,6 @@
 (* DONT_TOUCH = "true"   *)
 module motoring(
-    input clk_50M, 
+    input clk_50M, robot_run,
     input ir_in_F, ir_in_R, ir_in_L,
     input reset,        // Assumed Active Low based on enc_L usage
     input EN_A_L, EN_A_R,
@@ -19,7 +19,8 @@ module motoring(
 	 output [15:0] df,
 	 output [15:0] dr,
 	 output [19:0] counter_R,
-	 output reg in_follow
+	 output reg in_follow,
+	 output reg MPI_flag
 	 
 );
 
@@ -159,10 +160,10 @@ always @(posedge clk_50M)begin
 	case(state)
 //-----------BOOT-------------------
 	S_BOOT : begin
-		if(state_timer == 0)begin
+		if(state_timer == 0 && robot_run)begin
 			state <= S_FOLLOW;
 			prev_state <= S_BOOT;
-			need_decision <=0;
+			need_decision <= 0;
 		end
 		else state <= S_BOOT;
 	end
@@ -192,10 +193,17 @@ always @(posedge clk_50M)begin
 				junction_f <= 1995;
 				need_decision <=1;
 			end
-			else if (obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn
+			else if (!obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin  // U-turn with detection point
 				event_out <= 2'd3;
 				junction_f <= 0;
 				need_decision <=1;
+				MPI_flag <= 1'b0;  //no need to measure just take the U - turn 
+			end
+			else if(obst_f && obst_r && obst_l && (dF < front_US_turn_dim_up)) begin
+				event_out <= 2'd3;
+				junction_f <= 0;
+				need_decision <=1;
+				MPI_flag <= 1'b1;  //measure here 
 			end
 			if(start_in && cmd_in != 2'd3) begin   //we have to take the turn
             prev_state <= S_FOLLOW;
@@ -285,7 +293,7 @@ always @(posedge clk_50M)begin
 		in_follow <= 1'b0;
 		need_decision <= 0;
         if(state_timer == 0)begin
-            if(prev_state == S_SINGLE_WALL_TRACK || prev_state == S_FOLLOW) begin
+            if(prev_state == S_SINGLE_WALL_TRACK || prev_state == S_FOLLOW || prev_state == S_FORWARD_BEFORE) begin
                 state <= S_TURN;
                 prev_state <= S_STOP;
                 state_timer <= 0;
