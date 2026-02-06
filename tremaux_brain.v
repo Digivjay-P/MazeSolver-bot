@@ -1,5 +1,5 @@
 module Test1(
-	 input clk_50M, 
+	 input clk_50M, robot_run,
     input ir_in_F, ir_in_R, ir_in_L,
     input reset,        
     input EN_A_L, EN_A_R,
@@ -8,7 +8,8 @@ module Test1(
     output wire trig1, trig2, trig3,
     output op1, op2, op3, 
     output wire ENA, ENB,       
-    output wire IN1, IN2, IN3, IN4 
+    output wire IN1, IN2, IN3, IN4, 
+	 output reg [7:0] current_cell
 );
 
 /*
@@ -65,7 +66,7 @@ motoring m1(
     .IN1(IN1), .IN2(IN2), .IN3(IN3), .IN4(IN4),
     .dl(dL), . df(dF), .dr(dR),
     .counter_R (encoder_counter_R_current),
-	 .in_follow(in_follow)
+	 .in_follow(in_follow), .robot_run(robot_run)
     
 );
 
@@ -90,7 +91,7 @@ reg openL, openF, openR;           // Open paths
 reg [1:0] markL, markF, markR;     // Marker values
 //---------------------------------------------
 localparam open_distance = 400; //40cm
-localparam cell_threshold = 3000; //encoder value for cell change 
+localparam cell_threshold = 3400; //encoder value for cell change 
 
 
 //-------------------------------------------------
@@ -102,13 +103,14 @@ assign R_diff = (encoder_counter_R_current > R_ref) ? encoder_counter_R_current 
 //- --- -  ---- ----- --------------------x-----
 
 reg [1:0] brain_state;
+localparam BOOT = 2'd3;
 localparam WAIT_FOR_REQ = 2'd0;
 localparam DECIDE = 2'd1;
 localparam SEND_CMD = 2'd2;
 
 // --- Helper variables ---
 integer i, j;
-reg [7:0] current_cell, next_cell;
+reg [7:0] next_cell;
 reg signed [2:0] relL, relF, relR, relU;
 
 integer delta [0:3];
@@ -146,22 +148,39 @@ if(!reset)begin
     delta[1] =  8'sd1;  // E
     delta[2] =  8'sd9;  // S
     delta[3] = -8'sd1;  // W
-    current_cell = 7'd76;
     current_dir = N;
-    brain_state <= WAIT_FOR_REQ;
+    brain_state <= BOOT;
     state <= 2'b01;
     current_dir  <= N;
     current_cell <= 7'd76;
     x            <= 8'd4;
     y            <= 8'd8;
 	 idx <= 0;
-	 R_ref <= 0; 
+	 R_ref <= encoder_counter_R_current; 
     for (i = 0; i < 81; i = i + 1)
         for (j = 0; j < 4; j = j + 1)
         mark_mem[i][j] <= 2'b00;
 end
 else begin
 case(brain_state)
+BOOT : begin
+	if(robot_run) begin
+		brain_state <= WAIT_FOR_REQ;
+		current_cell = 7'd76;
+		current_dir  <= N;
+		x            <= 8'd4;
+      y            <= 8'd8;
+		R_ref <= encoder_counter_R_current; 
+	end
+	else begin
+		brain_state <= BOOT;
+		current_cell = 7'd76;
+		current_dir  <= N;
+		x            <= 8'd4;
+      y            <= 8'd8;
+		R_ref <= encoder_counter_R_current;
+	end
+end
 WAIT_FOR_REQ : begin
     
     if(need_decision == 1'b1)begin
