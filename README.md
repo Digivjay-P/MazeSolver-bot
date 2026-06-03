@@ -235,4 +235,4 @@ MazeSolver-bot/
 
 ---
 
-*e-Yantra Robotics Competition 2024–25 · Team 1687*
+*e-Yantra Robotics Competition 2025–26 · Team 1687*
